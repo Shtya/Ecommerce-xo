@@ -244,7 +244,7 @@ export default function SearchComponent({ className = "" }: Props) {
                           <p className="font-extrabold text-gray-900 truncate">{item.name}</p>
                           {item.price && (
                             <p className="text-sm text-gray-500 mt-0.5">
-                              {item.price} جنيه
+                              {item.price} ريال
                             </p>
                           )}
                         </div>

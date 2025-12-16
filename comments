@@ -1,28 +1,10 @@
- 
-- add get payment in footer
-- add login in the auth pages
-- show the login in the header in the phoen and enhance the header more than this in the phone 
+  
+- test order flow 
 
-- put values of the social media to test on them 
-- test make order flow 
-- show page order details page 
-- make two pages for hte fullback payment method
+ - issue of the creadites card 
+ - test the coupon
+ - show the money of teh payment when pay on paymob
 
-- crop the logo in the navbar
-
-
-- footer 
-		handle the payment method 
-		handle the social medial links 
-		add img about the desc 
-
-
-Check form the error of login via google
-
- 
-
-orders 
-	- check on the price 
-
-
-- when i slide in the header category slide also the section of category on the home page
+ - see the price that he will pay it and compare it with the final 
+ - call the payment-methods in the page payment.tsx 
+ -

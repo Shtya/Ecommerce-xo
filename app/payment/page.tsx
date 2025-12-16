@@ -14,8 +14,9 @@ import { useRouter } from "next/navigation";
 import KeyboardBackspaceIcon from "@mui/icons-material/KeyboardBackspace";
 import Swal from "sweetalert2";
 import { MdKeyboardArrowLeft } from "react-icons/md";
+import { useAppContext } from "../../src/context/AppContext";
 
- 
+
 function BlockSkeleton() {
 	return (
 		<div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm animate-pulse">
@@ -29,6 +30,7 @@ function BlockSkeleton() {
 export default function PaymentPage() {
 	const [openModal, setOpenModal] = useState(false);
 	const [showAddress, setShowAddress] = useState(false);
+	const { paymentMethods } = useAppContext() as any;
 
 	const [addresses, setAddresses] = useState<AddressI[]>([]);
 	const [selectedAddress, setSelectedAddress] = useState<AddressI | null>(null);
@@ -51,7 +53,6 @@ export default function PaymentPage() {
 		setToken(t);
 
 		if (!t) {
-			// ✅ لو مش مسجل دخول
 			Swal.fire("تنبيه", "يرجى تسجيل الدخول لإتمام الدفع", "warning");
 			router.push("/login");
 		}
@@ -125,7 +126,7 @@ export default function PaymentPage() {
 				payment_method: paymentMethod,
 				notes: notes?.trim() || `تم اختيار ${paymentLabel}`,
 			};
- 
+
 			if (selectedAddress?.id) {
 				orderData.address_id = selectedAddress.id;
 			}
@@ -146,13 +147,13 @@ export default function PaymentPage() {
 			if (!response.ok || !result?.status) {
 				throw new Error(result?.message || "حدث خطأ أثناء إنشاء الطلب");
 			}
- 
+
 			if (paymentMethod === "cash_on_delivery") {
 				Swal.fire("نجاح", "تم إنشاء الطلب بنجاح", "success");
 				router.push(`/ordercomplete?orderId=${result.data.id}`);
 			} else {
 				Swal.fire("انتظار", result?.data?.message || "جاري توجيهك إلى بوابة الدفع...", "info");
-				console.log(result?.data?.payment_url);
+				console.log(result?.data);
 				if (result?.data?.payment_url) window.location.href = result.data.payment_url;
 			}
 		} catch (error: any) {
@@ -246,8 +247,8 @@ export default function PaymentPage() {
 														key={address.id}
 														onClick={() => handleSelectAddress(address)}
 														className={`text-right rounded-3xl border p-4 transition ${active
-																? "border-pro-max bg-blue-50"
-																: "border-slate-200 bg-white hover:bg-slate-50"
+															? "border-pro-max bg-blue-50"
+															: "border-slate-200 bg-white hover:bg-slate-50"
 															}`}
 													>
 														<div className="flex items-start justify-between gap-2">
@@ -295,7 +296,7 @@ export default function PaymentPage() {
 							<p className="text-sm text-slate-500 mt-1">اختر الطريقة الأنسب لإتمام الطلب.</p>
 						</div>
 						<div className="p-5">
-							<BankPayment onPaymentMethodChange={setPaymentMethod} />
+							<BankPayment paymentMethods={paymentMethods} onPaymentMethodChange={setPaymentMethod} />
 						</div>
 					</div>
 				</div>
@@ -311,7 +312,7 @@ export default function PaymentPage() {
 					</div>
 
 					<div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-5">
-						<OrderSummary  />
+						<OrderSummary />
 						{/* <div className="mt-4">
 							<TotalOrder />
 						</div> */}

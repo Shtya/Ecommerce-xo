@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import HearComponent from './HearComponent';
 import PriceComponent from './PriceComponent';
 import ImageComponent from './ImageComponent';
@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/src/context/AuthContext';
 import { GoEye } from 'react-icons/go';
 import { motion, AnimatePresence } from 'framer-motion';
+import QuickViewModal from './QuickViewModal';
 
 interface ProductCardProps extends ProductI {
 	className?: string;
@@ -33,13 +34,34 @@ interface ProductCardProps extends ProductI {
 	selectedOptions?: { option_name: string; option_value: string }[];
 	selectedDesignServiceId?: number | null;
 	isSample?: boolean;
-
 }
 
-export default function ProductCard({ id, image, name, price, final_price, discount, stock, classNameHome = '', className2 = '', classNameCate = '', average_rating, reviews, is_favorite, Bottom = 'bottom-3', onFavoriteChange, selectedSizeId, selectedColorId, selectedPrintingMethodId, selectedPrintLocations = [], selectedEmbroiderLocations = [], selectedOptions = [], selectedDesignServiceId, isSample = false }: ProductCardProps) {
-	const [isFavorite, setIsFavorite] = useState(false);
+export default function ProductCard({
+	product,
+	id,
+	image,
+	name,
+	price,
+	final_price,
+	discount,
+	stock,
+	classNameHome = '',
+	classNameCate = '',
+	average_rating,
+	reviews,
+	is_favorite,
+	selectedSizeId,
+	selectedColorId,
+	selectedPrintingMethodId,
+	selectedPrintLocations = [],
+	selectedEmbroiderLocations = [],
+	selectedOptions = [],
+	selectedDesignServiceId,
+	isSample = false,
+}: any) {
 	const [showImage, setShowImage] = useState(false);
 	const [isAdding, setIsAdding] = useState(false);
+	const [quickViewOpen, setQuickViewOpen] = useState(false);
 
 	const { authToken: token, favoriteIdsSet, setFavoriteProducts } = useAuth();
 
@@ -48,23 +70,20 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 		if (is_favorite) return true;
 
 		try {
-			const saved = JSON.parse(localStorage.getItem("favorites") || "[]") as number[];
+			const saved = JSON.parse(localStorage.getItem('favorites') || '[]') as number[];
 			return saved.includes(id);
 		} catch {
 			return false;
 		}
 	}, [favoriteIdsSet, id, is_favorite]);
 
-
 	const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 	const inStock = (stock ?? 0) > 0;
 
-
-
 	const toggleFavorite = async (productId: number) => {
 		if (!token) {
-			toast.error("يجب تسجيل الدخول أولاً");
+			toast.error('يجب تسجيل الدخول أولاً');
 			return;
 		}
 
@@ -82,18 +101,18 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 
 		// localStorage (اختياري)
 		try {
-			const raw = localStorage.getItem("favorites");
+			const raw = localStorage.getItem('favorites');
 			const arr = raw ? (JSON.parse(raw) as number[]) : [];
 			const set = new Set(arr);
 			next ? set.add(productId) : set.delete(productId);
-			localStorage.setItem("favorites", JSON.stringify([...set]));
+			localStorage.setItem('favorites', JSON.stringify([...set]));
 		} catch { }
 
 		try {
 			const res = await fetch(`${API_URL}/favorites/toggle`, {
-				method: "POST",
+				method: 'POST',
 				headers: {
-					"Content-Type": "application/json",
+					'Content-Type': 'application/json',
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({ product_id: productId }),
@@ -112,9 +131,9 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 					}
 				});
 
-				toast.error(data?.message || "فشل تحديث المفضلة");
+				toast.error(data?.message || 'فشل تحديث المفضلة');
 				return;
-			} 
+			}
 		} catch {
 			// ✅ rollback context
 			setFavoriteProducts((prev: ProductI[]) => {
@@ -126,11 +145,9 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 				}
 			});
 
-			toast.error("حدث خطأ أثناء تحديث المفضلة");
+			toast.error('حدث خطأ أثناء تحديث المفضلة');
 		}
 	};
-
-
 
 	const { addToCart } = useCart();
 
@@ -158,73 +175,116 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 		setIsAdding(false);
 	};
 
-	const priceHasDiscount = useMemo(() => price && Number(price) !== Number(final_price), [price, final_price]);
+	// ✅ show lowest_price when final_price == 0 (or missing)
+	const displayFinalPrice = useMemo(() => {
+		const fp = Number(final_price || 0);
+		if (fp > 0) return fp;
+
+		const lp = Number(product?.lowest_price ?? 0);
+		return lp > 0 ? lp : 0;
+	}, [final_price, product?.lowest_price]);
+
+	const displayPrice = useMemo(() => {
+		const p = Number(price || 0);
+		return p > 0 ? p : 0;
+	}, [price]);
+
+	const priceHasDiscount = useMemo(() => {
+		if (!displayFinalPrice) return false;
+		if (!displayPrice) return false;
+		return displayPrice !== displayFinalPrice;
+	}, [displayPrice, displayFinalPrice]);
 
 	const showDiscountChip = Boolean(discount?.value);
 
 	return (
-		<motion.div className='relative group' initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+		<motion.div
+			className="relative group"
+			initial={{ opacity: 0, y: 8 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.25 }}
+		>
 			<motion.div
 				whileHover={{ y: -3 }}
 				transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-				className='relative flex flex-col rounded-lg md:rounded-3xl border border-slate-200 bg-white overflow-hidden
-                    shadow-sm hover:border-gray-200 transition'>
+				className="relative flex flex-col rounded-lg md:rounded-3xl border border-slate-200 bg-white overflow-hidden
+                    shadow-sm hover:border-gray-200 transition"
+			>
 				{/* Image */}
 				<div className={`relative w-full h-[150px] md:h-[240px] bg-gray-50`}>
-					<Link href={`/product/${id}`} className='block h-full'>
-						<div className='relative h-full overflow-hidden'>
+					<Link href={`/product/${id}`} className="block h-full">
+						<div className="relative h-full overflow-hidden">
 							<ImageComponent image={image || '/images/c1.png'} />
-							<div className='absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition' />
+							<div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition" />
 						</div>
 					</Link>
 
 					{/* Top actions */}
-					<div className='absolute top-1 md:top-3 inset-x-1  md:inset-x-3 flex items-center justify-between z-10'>
- 
-						<motion.div
-							whileHover={{ scale: 1.05 }}
-							whileTap={{ scale: 0.92 }}
-							className="w-8 h-8 md:w-11 md:h-11 flex-none rounded-full bg-white/90 backdrop-blur shadow flex items-center justify-center ring-1 ring-black/5"
-						>
-							<HearComponent
-								onToggleLike={() => toggleFavorite(id)}
-								liked={computedIsFavorite}
-								ClassName="text-pro"
-							/>
-						</motion.div>
-
-
+					<div className="absolute top-1 md:top-3 inset-x-1  md:inset-x-3 flex items-center justify-between z-10">
+						<HearComponent
+							onToggleLike={() => toggleFavorite(id)}
+							liked={computedIsFavorite}
+							ClassName="text-pro "
+							ClassNameP="!w-9 !h-9"
+						/>
 						{/* Discount / Stock */}
-						{showDiscountChip ? <span className='px-3 py-1 text-[11px] font-extrabold rounded-lg md:rounded-full bg-red-50 text-red-600 ring-1 ring-red-100'>-{discount?.value}%</span> : <span className={`px-3 py-1 text-[11px] font-extrabold rounded-lg md:rounded-full ring-1 ring-black/5 ${inStock ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>{inStock ? 'متوفر' : 'غير متوفر'}</span>}
+						{showDiscountChip ? (
+							<span className="px-3 py-1 text-[11px] font-extrabold rounded-lg md:rounded-full bg-red-50 text-red-600 ring-1 ring-red-100">
+								-{discount?.value}%
+							</span>
+						) : (
+							<span
+								className={`px-3 py-1 text-[11px] font-extrabold rounded-lg md:rounded-full ring-1 ring-black/5 ${inStock ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+									}`}
+							>
+								{inStock ? 'متوفر' : 'غير متوفر'}
+							</span>
+						)}
 					</div>
 
-					{/* Quick view */}
 					<motion.button
-						aria-label='show product'
-						onClick={e => {
+						aria-label="quick view"
+						onClick={(e) => {
 							e.preventDefault();
 							e.stopPropagation();
-							setShowImage(true);
+							setQuickViewOpen(true);
 						}}
 						whileHover={{ scale: 1.08 }}
 						whileTap={{ scale: 0.92 }}
-						className={`absolute bottom-3 end-3 bg-white/90 backdrop-blur w-11 h-11 rounded-full flex items-center justify-center shadow ring-1 ring-black/5 ${className2}`}>
-						<GoEye size={18} className='text-gray-800' />
+						className={`absolute top-[95px] start-[14px] border border-slate-100 bg-white/90 backdrop-blur w-8 h-8  rounded-full flex items-center justify-center shadow ring-1 ring-black/5 `}
+					>
+						<GoEye className="text-gray-800" />
 					</motion.button>
 
-					<AnimatePresence>{showImage && <ShowImage onClose={() => setShowImage(false)} src={image || '/images/c1.png'} />}</AnimatePresence>
+					<QuickViewModal
+						open={quickViewOpen}
+						onClose={() => setQuickViewOpen(false)}
+						product={product}
+
+						onAddToCart={handleAddToCart}
+						isAdding={isAdding}
+					/>
+
+					<AnimatePresence>
+						{showImage && <ShowImage onClose={() => setShowImage(false)} src={image || '/images/c1.png'} />}
+					</AnimatePresence>
 
 					{/* If discount exists, still show stock badge small at bottom start */}
 					{showDiscountChip && (
-						<div className='absolute bottom-3 start-3 z-10'>
-							<span className={`px-3 py-1 text-[11px] font-extrabold rounded-full ring-1 ring-black/5 ${inStock ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>{inStock ? 'متوفر' : 'غير متوفر'}</span>
+						<div className="absolute bottom-3 start-3 z-10">
+							<span
+								className={`px-3 py-1 text-[11px] font-extrabold rounded-full ring-1 ring-black/5 ${inStock ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+									}`}
+							>
+								{inStock ? 'متوفر' : 'غير متوفر'}
+							</span>
 						</div>
 					)}
 
 					{/* Cart Floating Button (intentional placement) */}
 					<motion.button
-						aria-label='add to cart'
-						onClick={e => {
+						aria-label="add to cart"
+						onClick={(e) => {
 							e.preventDefault();
 							e.stopPropagation();
 							handleAddToCart();
@@ -232,23 +292,37 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 						disabled={isAdding || !inStock}
 						whileHover={inStock && !isAdding ? { scale: 1.06 } : undefined}
 						whileTap={inStock && !isAdding ? { scale: 0.92 } : undefined}
-						className={`absolute right-1 md:right-3 top-[58px] md:top-[85px] -translate-y-1/2 z-20 ${classNameCate}`}>
-						<div className={`w-8 h-8 md:w-11 md:h-11 rounded-full flex items-center justify-center shadow-lg ring-1 ring-black/5 ${inStock ? 'bg-pro text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>{isAdding ? <div className='w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin' /> : <BsCart3 className='w-18 max-md:!w-16 ' />}</div>
+						className={`absolute right-1 md:right-3  top-[72px] -translate-y-1/2 z-20 ${classNameCate}`}
+					>
+						<div
+							className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg ring-1 ring-black/5 ${inStock ? 'bg-pro text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+								}`}
+						>
+							{isAdding ? (
+								<div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+							) : (
+								<BsCart3 className="w-18 max-md:!w-16 " />
+							)}
+						</div>
 					</motion.button>
 				</div>
 
 				{/* Content */}
-				<div className='p-4 space-y-3'>
+				<div className="p-4 space-y-3">
 					<Link href={`/product/${id}`}>
-						<h3 className='text-sm md:text-[16px] font-extrabold text-gray-900 line-clamp-1 hover:text-pro transition'>{name}</h3>
+						<h3 className="text-sm md:text-[16px] font-extrabold text-gray-900 line-clamp-1 hover:text-pro transition">
+							{name}
+						</h3>
 					</Link>
 
 					{/* Price */}
 					<div className={`flex items-center gap-2 max-md:!mb-1 ${classNameHome}`}>
-						{Number(final_price) > 0 ? (
+						{displayFinalPrice > 0 ? (
 							<>
-								<PriceComponent final_price={final_price} />
-								{priceHasDiscount && <span className='text-sm text-gray-400 line-through'>{price} ج.م</span>}
+								<PriceComponent final_price={displayFinalPrice} />
+								{priceHasDiscount && (
+									<span className="text-sm text-gray-400 line-through">{displayPrice} ج.م</span>
+								)}
 							</>
 						) : null}
 					</div>
@@ -257,7 +331,7 @@ export default function ProductCard({ id, image, name, price, final_price, disco
 					<RatingStars average_ratingc={average_rating || 0} reviewsc={reviews || []} />
 
 					{/* Divider */}
-					<div className='h-px bg-gray-200/70' />
+					<div className="h-px bg-gray-200/70" />
 
 					{/* Bottom */}
 					<BottomSlider />

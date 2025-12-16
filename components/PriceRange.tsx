@@ -58,9 +58,9 @@ export default function PriceSlider() {
           />
           <div className="flex justify-between text-sm font-medium text-gray-600 mb-2">
             <p>من</p>
-            <span>{value[1].toLocaleString()} جنيه</span>
+            <span>{value[1].toLocaleString()} ريال</span>
             <p>الي</p>
-            <span>{value[0].toLocaleString()} جنيه</span>
+            <span>{value[0].toLocaleString()} ريال</span>
           </div>
         </Box>
       </div>

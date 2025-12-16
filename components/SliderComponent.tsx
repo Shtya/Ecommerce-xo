@@ -1,47 +1,61 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, Pagination, Autoplay } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
 
 import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/pagination";
 
-type SliderItem = {
-  id: number;
-  order?: number;
-  image: string | null;
-  mobile_image: string | null;
-  alt?: string | null;
-  link_url?: string | null;
-  link_target?: "_self" | "_blank" | string;
-  is_active?: boolean;
-  is_link_active?: boolean;
-};
-
-
-type SliderResponse = any
+type SliderResponse = any;
 
 export default function SliderComponent({ src }: { src: SliderResponse | null }) {
   const prevRef = useRef<HTMLButtonElement | null>(null);
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const paginationRef = useRef<HTMLDivElement | null>(null);
+  const swiperRef = useRef<SwiperType | null>(null);
 
-  // Normalize items + filter active + sort by order
   const items = useMemo(() => {
     const list = src?.items ?? [];
     return list
-      .filter((it:any) => it?.is_active !== false)
-      .sort((a:any, b:any) => (a.order ?? 0) - (b.order ?? 0));
+      .filter((it: any) => it?.is_active !== false)
+      .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
   }, [src]);
 
   const hasSlides = items.length > 0;
-  const showNav = items.length > 1; // ✅ arrows only if 2+ slides
-  const showPagination = items.length > 1; // ✅ show pagination on mobile too
+  const showNav = items.length > 1;
+  const showPagination = items.length > 1;
 
-  if (!hasSlides) return null; // ✅ don't render anything until data exists
+  useEffect(() => {
+    const swiper = swiperRef.current;
+    if (!swiper) return;
+
+    // wire nav
+    if (showNav && prevRef.current && nextRef.current) {
+      // @ts-ignore
+      swiper.params.navigation.prevEl = prevRef.current;
+      // @ts-ignore
+      swiper.params.navigation.nextEl = nextRef.current;
+      swiper.navigation?.destroy();
+      swiper.navigation?.init();
+      swiper.navigation?.update();
+    }
+
+    // wire pagination
+    if (showPagination && paginationRef.current) {
+      // @ts-ignore
+      swiper.params.pagination.el = paginationRef.current;
+      swiper.pagination?.destroy();
+      swiper.pagination?.init();
+      swiper.pagination?.render();
+      swiper.pagination?.update();
+    }
+  }, [showNav, showPagination, items.length]);
+
+  if (!hasSlides) return null;
 
   return (
     <div className="relative w-full h-[200px] md:h-[420px]">
@@ -49,28 +63,17 @@ export default function SliderComponent({ src }: { src: SliderResponse | null })
         modules={[Navigation, Pagination, Autoplay]}
         spaceBetween={18}
         slidesPerView={1}
-        loop={items.length > 1}
-        autoplay={items.length > 1 ? { delay: 2800, disableOnInteraction: false } : false}
-        // Use onInit (more reliable for refs than onBeforeInit in many setups)
-        onInit={(swiper) => {
-          // @ts-ignore
-          swiper.params.navigation.prevEl = prevRef.current;
-          // @ts-ignore
-          swiper.params.navigation.nextEl = nextRef.current;
-          // @ts-ignore
-          swiper.params.pagination.el = paginationRef.current;
-
-          swiper.navigation?.init();
-          swiper.navigation?.update();
-          swiper.pagination?.init();
-          swiper.pagination?.render();
-          swiper.pagination?.update();
+        // loop={items.length > 1}
+        // autoplay={items.length > 1 ? { delay: 2800, disableOnInteraction: false } : false}
+        onSwiper={(swiper) => {
+          swiperRef.current = swiper;
         }}
         navigation={showNav}
         pagination={
           showPagination
             ? {
                 clickable: true,
+                // IMPORTANT: don't set `el` here; it will be null on first render.
                 renderBullet: (index, className) =>
                   `<span class="${className} w-2.5 h-2.5 md:w-3 md:h-3 rounded-full bg-white/60 inline-block mx-1"></span>`,
               }
@@ -78,7 +81,7 @@ export default function SliderComponent({ src }: { src: SliderResponse | null })
         }
         className="w-full h-full"
       >
-        {items.map((item:any, index:any) => {
+        {items.map((item: any, index: number) => {
           const href = item?.is_link_active === false ? "/" : item?.link_url || "/";
           const target = item?.link_target || "_self";
           const alt = item?.alt || `Slide ${index + 1}`;
@@ -101,42 +104,28 @@ export default function SliderComponent({ src }: { src: SliderResponse | null })
           );
         })}
 
-        {/* ✅ arrows only when 2+ slides */}
-        {/* {showNav && (
-          <>
-            <button
-              ref={prevRef}
-              className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/85 hover:bg-white shadow items-center justify-center transition active:scale-95"
-              aria-label="السابق"
-              type="button"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
+        
 
-            <button
-              ref={nextRef}
-              className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/85 hover:bg-white shadow items-center justify-center transition active:scale-95"
-              aria-label="التالي"
-              type="button"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+        {/* optional arrows if you have them */}
+        {showNav && (
+          <>
+            <button ref={prevRef} className="absolute left-2 top-1/2 -translate-y-1/2 z-20">
+              {/* Prev */}
+            </button>
+            <button ref={nextRef} className="absolute right-2 top-1/2 -translate-y-1/2 z-20">
+              {/* Next */}
             </button>
           </>
-        )} */}
+        )}
+      </Swiper>
 
-        {/* ✅ pagination visible on phone */}
+			{/* custom pagination container */}
         {showPagination && (
           <div
             ref={paginationRef}
-            className="absolute bottom-3 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center justify-center gap-2 z-20"
+            className="absolute z-[100] bottom-3 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center justify-center gap-2 z-20"
           />
         )}
-      </Swiper>
- 
     </div>
   );
 }

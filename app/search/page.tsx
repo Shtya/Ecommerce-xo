@@ -251,6 +251,7 @@ export default function SearchPage() {
 							>
 								{paginatedProducts.map((product) => (
 									<ProductCard
+									product={product}
 										key={product.id}
 										{...product}
 										image={product.image || "/images/c1.png"}

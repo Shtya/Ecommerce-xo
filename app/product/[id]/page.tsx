@@ -706,7 +706,7 @@ export default function ProductPageClient() {
 						</SectionCard>
 
 						{/* ✅ Shipping + Warranty + Offers */}
-						<SectionCard title="معلومات الشحن والضمان والعروض" icon={<Truck className="w-5 h-5 text-slate-700" />}>
+						{apiData?.delivery_time && <SectionCard title="معلومات الشحن والضمان والعروض" icon={<Truck className="w-5 h-5 text-slate-700" />}>
 							<div className="space-y-3">
 								{apiData?.delivery_time?.estimated && (
 									<InfoRow
@@ -742,7 +742,7 @@ export default function ProductPageClient() {
 									</div>
 								)}
 							</div>
-						</SectionCard>
+						</SectionCard>}
 
 						{/* ✅ Features as SPECs (NOT selectable) */}
 						{Array.isArray(apiData?.features) && apiData.features.length > 0 && (
@@ -1265,7 +1265,7 @@ export default function ProductPageClient() {
 										<InStockSlider
 											title="منتجات قد تعجبك"
 											inStock={list}
-											CardComponent={(props: any) => <ProductCard {...props} classNameHome="hidden" className2="hidden" />}
+											CardComponent={(props: any) => <ProductCard {...props} product={product} classNameHome="hidden" className2="hidden" />}
 										/>
 									</div>
 								);
@@ -1280,9 +1280,9 @@ export default function ProductPageClient() {
 				<div className="border-t border-slate-200 bg-white/80 backdrop-blur">
 					<div className="container py-3">
 						<div className="rounded-3xl border border-slate-200 bg-white shadow-sm px-3 py-3 md:px-4 md:py-4">
-							<div className="flex items-center justify-between gap-3">
+							<div className="flex max-md:flex-col items-center justify-between gap-3">
 								{/* Left */}
-								<div className="flex items-center gap-3 min-w-0">
+								<div className="max-md:w-full flex items-center gap-3 min-w-0">
 									<div className="relative w-14 h-14 md:w-16 md:h-16 rounded-2xl overflow-hidden bg-slate-100 ring-1 ring-slate-200 shrink-0">
 										<Image src={product.image || "/images/o1.jpg"} alt={product.name} fill className="object-cover" />
 									</div>
@@ -1320,7 +1320,7 @@ export default function ProductPageClient() {
 								</div>
 
 								{/* Right */}
-								<div className="flex items-center gap-3">
+								<div className="flex max-md:w-full max-md:justify-between items-center gap-3">
 									{(() => {
 										const currency = "ر.س";
 										const price = Number(product?.price ?? 0);
@@ -1394,7 +1394,7 @@ export default function ProductPageClient() {
 									})()}
 
 									<div className="min-w-[170px]">
-										<ButtonComponent title={showMissingBadge ? "اختر الخيارات أولاً" : "اضافة للسلة"} onClick={handleAddToCart} />
+										<ButtonComponent className="scale-[.8]"  title={showMissingBadge ? "اختر الخيارات أولاً" : "اضافة للسلة"} onClick={handleAddToCart} />
 									</div>
 								</div>
 							</div>

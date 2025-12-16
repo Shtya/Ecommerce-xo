@@ -62,17 +62,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 			try {
 				setLoading(true);
 
-				// 1)   HOME
-				const home = await fetchHomeData();
-				setHomeData(home);
+				fetchHomeData().then(res => {
+					setHomeData(res)
+				});
 
 				// 2) Categories Parent
-				const parents = await fetchApi("categories?type=parent");
-				setParentCategories(Array.isArray(parents) ? parents : []);
+				fetchApi("categories?type=parent").then(res => {
+					setParentCategories(Array.isArray(res) ? res : []);
+				})
 
 				// 3) Categories Child
-				const children = await fetchApi("categories?type=child");
-				setChildCategories(Array.isArray(children) ? children : []);
+				fetchApi("categories?type=child").then(res => {
+					setChildCategories(Array.isArray(res) ? res : []);
+
+				})
 				// 4) socialMedia
 				const socialMedia = await fetchApi("social-media");
 				setSocialMedia(Array.isArray(socialMedia) ? socialMedia : []);

@@ -40,7 +40,7 @@ export default function OrderPayDetails({item}:OrderPayDetailsProps) {
             </p>
             <h6 className="font-bold">
               {item.price}
-              <span className="font-semibold text-sm ms-1">جنيه</span>
+              <span className="font-semibold text-sm ms-1">ريال</span>
             </h6>
           {/* {available &&(    <p className="bg-[#f0fbf3] text-[#20a144] rounded px-3 py-1 w-fit text-md my-2">
               ينتج عند الطلب
@@ -62,7 +62,7 @@ export default function OrderPayDetails({item}:OrderPayDetailsProps) {
          ( <div>
             <p>إجمالي رسوم الشحن</p>
             <span className="font-bold mx-0.5">27</span>
-            <span>جنيه</span>
+            <span>ريال</span>
           </div>):
          ( <p className=" font-normal text-green-600">شحن مجاني</p>)}
         </div> */}

@@ -197,25 +197,21 @@ export function StickerFormSkeleton() {
 		<div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
 			{/* Field 1 */}
 			<div className="flex items-center gap-4">
-				<Sk className="h-5 w-20 rounded-md" />      {/* label */}
 				<Sk className="h-11 flex-1 rounded-xl" />  {/* select */}
 			</div>
 
 			{/* Field 2 */}
 			<div className="flex items-center gap-4">
-				<Sk className="h-5 w-20 rounded-md" />
 				<Sk className="h-11 flex-1 rounded-xl" />
 			</div>
 
 			{/* Field 3 */}
 			<div className="flex items-center gap-4">
-				<Sk className="h-5 w-20 rounded-md" />
 				<Sk className="h-11 flex-1 rounded-xl" />
 			</div>
 
 			{/* Optional feature field */}
 			<div className="flex items-center gap-4">
-				<Sk className="h-5 w-28 rounded-md" />
 				<Sk className="h-11 flex-1 rounded-xl" />
 			</div>
 

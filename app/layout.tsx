@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "@/styles/screen.css";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { Toaster } from "react-hot-toast";
 import Providers from "./Providers";
 import { AppProvider } from "@/src/context/AppContext";
 import { ToastProvider } from "@/src/context/ToastContext";
 import { Cairo } from "next/font/google";
 import LayoutShell from "./LayoutShell";
+import '@/lib/fontawesome'
 
 const cairo = Cairo({
 	subsets: ["arabic"],

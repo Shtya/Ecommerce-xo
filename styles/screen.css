@@ -228,3 +228,16 @@ body * {
   font-family: sans-serif !important;
   letter-spacing: 0.04em;
 }
+
+.swiper-pagination-clickable.swiper-pagination-bullets.swiper-pagination-horizontal {
+  left: unset;
+  position: absolute;
+  right: 0;
+  translate: none;
+  gap: 0 !important;
+}
+
+.swiper-pagination-bullet {
+  background: #2563eb !important;
+  opacity: 0.6;
+}

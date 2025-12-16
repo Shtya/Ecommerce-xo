@@ -460,6 +460,7 @@ export default function CategoryPage() {
 											<ProductCard
 												id={product.id}
 												name={product.name}
+												product={product}
 												image={product.image || "/images/c1.png"}
 												images={
 													product.images?.length

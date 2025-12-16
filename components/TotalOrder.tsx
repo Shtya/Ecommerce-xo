@@ -56,7 +56,7 @@ export default function TotalOrder({ response }: { response?: any }) {
 				<p className="font-semibold">المجموع ({cartData.items?.length} عناصر)</p>
 				<p>
 					{formattedSubtotal}
-					<span className="text-sm ms-1">جنيه</span>
+					<span className="text-sm ms-1">ريال</span>
 				</p>
 			</div>
 
@@ -68,7 +68,7 @@ export default function TotalOrder({ response }: { response?: any }) {
 				) : (
 					<p className="text-md">
 						{shippingFee}
-						<span className="text-sm ms-1">جنيه</span>
+						<span className="text-sm ms-1">ريال</span>
 					</p>
 				)}
 			</div>
@@ -86,7 +86,7 @@ export default function TotalOrder({ response }: { response?: any }) {
 
 				<p className="text-[15px] text-pro font-bold">
 					{grandTotal}
-					<span> جنيه</span>
+					<span> ريال</span>
 				</p>
 			</div>
 		</div>

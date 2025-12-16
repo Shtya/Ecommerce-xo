@@ -400,7 +400,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
       if (response.ok && data.status) {
         await loadItemOptions(cartItemId);
-        toast.success("تم تحديث العنصر بنجاح");
+        // toast.success("تم تحديث العنصر بنجاح");
         return true;
       } else {
         await refreshCart();

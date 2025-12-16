@@ -97,7 +97,7 @@ const formattedTotal = total.toLocaleString("en-US", {
                   <h4>المجموع الفرعي </h4>
                   <p className="font-bold">
                     {formattedTotal}
-                    <span>جنيه</span>
+                    <span>ريال</span>
                   </p>
                 </div>
               </div>
@@ -125,7 +125,7 @@ const formattedTotal = total.toLocaleString("en-US", {
                             {item.product.name}
                           </p>
                           <p className="text-lg text-gray-900 font-bold mt-4">
-                            <span className="font-normal text-sm me-2">جنيه</span>
+                            <span className="font-normal text-sm me-2">ريال</span>
                             {item.product.price}
                           </p>
                         </div>

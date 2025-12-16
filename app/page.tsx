@@ -97,6 +97,7 @@ export default function Home() {
                       CardComponent={(product: any) => (
                         <ProductCard
                           {...product}
+													product={product}
                           key={product.id}
                           id={product.id}
                           name={product.name}

@@ -277,7 +277,7 @@ export default function Orders() {
 													</p>
 
 													<p className="text-slate-600 text-sm font-semibold">
-														سعر المنتج: <span className="font-extrabold">{productPrice}</span> جنيه
+														سعر المنتج: <span className="font-extrabold">{productPrice}</span> ريال
 													</p>
 
 													<p className="text-slate-600 text-sm font-semibold">

@@ -54,12 +54,7 @@ function normalizeSocialHref(key: string, value: string) {
   if (v.startsWith("http")) return v;
   return `https://${v}`;
 }
-
-function FontAwesomeIcon({ className }: { className?: string }) {
-  if (!className) return null;
-  return <i className={`${className} text-lg`} aria-hidden="true" />;
-}
-
+ 
 export default function Footer() {
   const { socialMedia, paymentMethods } = useAppContext() as any;
 
