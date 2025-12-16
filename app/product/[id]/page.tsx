@@ -1235,8 +1235,8 @@ export default function ProductPageClient() {
 					<motion.div variants={fadeUp} initial="hidden" animate="show" className="lg:col-span-7">
 						<div className="lg:sticky lg:top-[150px]">
 							<ProductGallery
-								mainImage={product.image || "/images/o1.jpg"}
-								images={product.images?.length ? product.images : [{ url: "/images/c1.png", alt: "default" }]}
+								mainImage={product.image  }
+								images={product.images }
 							/>
 						</div>
 					</motion.div>

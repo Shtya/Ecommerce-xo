@@ -11,18 +11,17 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import type { ImagesI } from "@/Types/ProductsI";
 
-interface GalleryProps {
-  mainImage: string;
-  images: ImagesI[];
-}
+ 
 
-export default function ProductGallery({ mainImage, images }: GalleryProps) {
+export default function ProductGallery({ mainImage, images }: any) {
   const [thumbsSwiper, setThumbsSwiper] = useState<any>(null);
 
   const allImages = useMemo(
-    () => [{ url: mainImage, alt: "Main Product" }, ...(images || [])].filter(Boolean),
+    () => [{ path: mainImage, alt: "Main Product" }, ...(images || [])].filter(Boolean),
     [mainImage, images]
   );
+
+	console.log(allImages);
 
   const hasNav = allImages.length > 1;
 
@@ -45,7 +44,7 @@ export default function ProductGallery({ mainImage, images }: GalleryProps) {
                 className="relative w-full h-[320px] sm:h-[420px] lg:h-[560px] bg-slate-50"
               >
                 <Image
-                  src={img.url || "/images/c1.png"}
+                  src={img.path || "/images/c1.png"}
                   alt={img.alt || `Product ${i}`}
                   fill
                   className="object-cover"
@@ -76,7 +75,7 @@ export default function ProductGallery({ mainImage, images }: GalleryProps) {
               <SwiperSlide key={i} className="cursor-pointer">
                 <div className="relative h-16 sm:h-20 rounded-2xl overflow-hidden ring-1 ring-slate-200 hover:ring-slate-300 transition">
                   <Image
-                    src={img.url || "/images/o1.jpg"}
+                    src={img.path || "/images/o1.jpg"}
                     alt={img.alt || `Thumb ${i}`}
                     fill
                     className="object-cover hover:scale-[1.03] transition duration-300"
