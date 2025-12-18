@@ -34,6 +34,8 @@ interface AppContextType {
 	paymentMethods: any
 	loading: boolean;
 	error: string | null;
+	loadingHome: any
+	loadingCategories: any
 }
 
 const AppContext = createContext<AppContextType>({
@@ -42,17 +44,21 @@ const AppContext = createContext<AppContextType>({
 	childCategories: [],
 	socialMedia: [],
 	paymentMethods: [],
-
 	loading: true,
 	error: null,
+	loadingHome: true,
+	loadingCategories: true
 });
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
 	const [homeData, setHomeData] = useState<HomeData | null>(null);
+	const [loadingHome, setLoadingHome] = useState<any>(null);
 	const [parentCategories, setParentCategories] = useState<CategoryI[]>([]);
+	const [loadingCategories, setLoadingCategories] = useState<any>([]);
 	const [childCategories, setChildCategories] = useState<CategoryI[]>([]);
 	const [socialMedia, setSocialMedia] = useState<SocialMediaI[]>([]);
 	const [paymentMethods, setPaymentMethods] = useState<any>([]);
+
 
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -61,14 +67,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 		const loadAllData = async () => {
 			try {
 				setLoading(true);
+				setLoadingHome(true)
+				setLoadingCategories(true)
 
 				fetchHomeData().then(res => {
 					setHomeData(res)
-				});
+					setLoadingHome(true)
+				}).finally(() => {
+					setLoadingHome(false)
+				})
 
 				// 2) Categories Parent
 				fetchApi("categories?type=parent").then(res => {
 					setParentCategories(Array.isArray(res) ? res : []);
+					setLoadingCategories(true)
+				}).finally(() => {
+					setLoadingCategories(false)
 				})
 
 				// 3) Categories Child
@@ -95,6 +109,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 		loadAllData();
 	}, []);
 
+
 	return (
 		<AppContext.Provider
 			value={{
@@ -105,6 +120,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 				paymentMethods,
 				loading,
 				error,
+				loadingHome,
+				loadingCategories
 			}}
 		>
 			{children}

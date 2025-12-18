@@ -43,16 +43,15 @@ const formattedTotal = total.toLocaleString("en-US", {
       >
         <div className="flex relative gap-1">
         
+					<p className=" max-md:hidden ">العربة</p>
           <HiOutlineShoppingBag size={25} strokeWidth={1.3} />
           {
-            cart.length>0 && (  <span className="absolute -top-2 -right-2  bg-red-500 rounded-full w-5 h-5 p-2 text-[0.9rem] flex items-center justify-center text-white">
+            cart.length>0 && (  <span className="absolute -top-2 -left-2  bg-red-500 rounded-full w-5 h-5 p-2 text-[0.9rem] flex items-center justify-center text-white">
             {cart.length}
           </span>)
           }
-          <p className=" max-md:hidden ">العربة</p>
         </div>
       </Link>
-
       <AnimatePresence>
         {cartOpen && (
           <>

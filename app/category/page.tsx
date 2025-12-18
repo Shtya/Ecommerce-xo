@@ -98,7 +98,7 @@ function CategoryCard({ category }: { category: Category }) {
 				</div>
 
 				{/* Body */}
-				<div className="p-4">
+				<div className="p-4 flex flex-col gap-2 ">
 					{/* children chips */}
 					{childrenCount > 0 && (
 						<div className="flex flex-wrap gap-2">
@@ -119,11 +119,11 @@ function CategoryCard({ category }: { category: Category }) {
 					)}
 
 					{/* CTA */}
-					<div className="mt-4 flex items-center justify-between">
+					<div className="  flex items-center justify-between">
 						<span className="text-sm font-bold text-slate-700">
 							استعرض المنتجات
 						</span>
-						<span className="inline-flex items-center gap-1 text-sm font-bold text-pro">
+						<span className=" max-md:hidden inline-flex items-center gap-1 text-sm font-bold text-pro">
 							فتح <MdOutlineKeyboardArrowLeft className="text-xl" />
 						</span>
 					</div>
@@ -185,7 +185,7 @@ export default function CategoriesPage() {
 	}, [categories, deferredQ, onlyParents]);
 
 	return (
-		<section dir="rtl" className=" container py-10">
+		<section dir="rtl" className=" container py-4 md:py-10">
 			{/* Hero */}
 			<div className="rounded-3xl border border-slate-200 bg-white overflow-hidden mb-8">
 				<div className="p-6 md:p-8 bg-slate-50 border-b border-slate-200">
@@ -244,7 +244,7 @@ export default function CategoriesPage() {
 			</div>
 
 			{/* Grid */}
-			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+			<div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
 				{loading
 					? Array.from({ length: 10 }).map((_, i) => <CategoryCardSkeleton key={i} />)
 					: filtered.map((cat) => <CategoryCard key={cat.id} category={cat} />)}

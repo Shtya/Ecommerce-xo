@@ -88,8 +88,8 @@ export default function SearchNavbar() {
 								href={`tel:${String(phone).replace(/\s+/g, "")}`}
 								className="flex items-center gap-1 text-pro-hover font-bold hover:opacity-90 transition"
 							>
-								<LuPhone size={22} strokeWidth={1.3} />
 								<span className="tabular-nums">{phone}</span>
+								<LuPhone size={22} strokeWidth={1.3} />
 							</a>
 						</div>}
 

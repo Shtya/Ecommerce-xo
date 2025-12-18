@@ -19,7 +19,7 @@ export default function Favorite() {
 		return <NoOrders title="لا يوجد منتجات مفضلة." />;
 
 	return (
-		<div className="p-4">
+		<div className=" ">
 			<div className="mb-4 flex items-center justify-between gap-3">
 				<div>
 					<h2 className="text-2xl font-extrabold text-slate-900">
@@ -30,12 +30,12 @@ export default function Favorite() {
 					</p>
 				</div>
 
-				<span className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+				<span className="rounded-xl text-nowrap bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
 					{favoriteProducts.length} منتج
 				</span>
 			</div>
 
-			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+			<div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">
 				{favoriteProducts.map((product: any) => (
 					<ProductCard
 					product={product}

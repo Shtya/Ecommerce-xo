@@ -250,17 +250,6 @@ export default function ProductCard({
 						{showImage && <ShowImage onClose={() => setShowImage(false)} src={image || '/images/c1.png'} />}
 					</AnimatePresence>
 
-					{/* If discount exists, still show stock badge small at bottom start */}
-					{showDiscountChip && (
-						<div className="absolute bottom-3 start-3 z-10">
-							<span
-								className={`px-3 py-1 text-[11px] font-extrabold rounded-full ring-1 ring-black/5 ${inStock ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
-									}`}
-							>
-								{inStock ? 'متوفر' : 'غير متوفر'}
-							</span>
-						</div>
-					)}
 
 					{/* Cart Floating Button (intentional placement) */}
 					<motion.button
@@ -299,12 +288,12 @@ export default function ProductCard({
 					{/* Price */}
 					<div className={`flex items-center gap-2 max-md:!mb-1 ${classNameHome}`}>
 						{displayFinalPrice > 0 ? (
-							<>
+							<div className='flex items-center gap-1 flex-wrap' >
 								<PriceComponent start final_price={displayFinalPrice} />
 								{priceHasDiscount && (
 									<span className="text-sm text-gray-400 line-through">{displayPrice} ر.س</span>
 								)}
-							</>
+							</div>
 						) : null}
 					</div>
 

@@ -1,201 +1,199 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useSession, signOut as nextAuthSignOut } from "next-auth/react";
 import { ProductI } from "../../Types/ProductsI";
 
 const AuthContext = createContext<any | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-	const [authToken, setAuthToken] = useState<string | null>(null);
-	const [userName, setUserName] = useState<string | null>(null);
-	const [userEmail, setUserEmail] = useState<string | null>(null);
-	const [userImage, setUserImage] = useState<string | null>(null);
-	const [fullName, setFullName] = useState<string | null>(null);
-	const [favoriteProducts, setFavoriteProducts] = useState<ProductI[]>([]);
-	const [favoriteProductsLoading, setFavoriteProductsLoading] = useState<any>();
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userImage, setUserImage] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string | null>(null);
 
-	const { data: session, status } = useSession();
+  const [favoriteProducts, setFavoriteProducts] = useState<ProductI[]>([]);
+  const [favoriteProductsLoading, setFavoriteProductsLoading] =
+    useState<boolean>(false);
 
+  const { data: session, status } = useSession();
 
-	useEffect(() => {
-		const fetchFavorites = async () => {
-			setFavoriteProductsLoading(true);
+  /* ---------------------- LOAD LOCAL STORAGE + NEXTAUTH USER ---------------------- */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-			if (!authToken) {
-				setFavoriteProducts([]);
-				setFavoriteProductsLoading(false);
-				return;
-			}
+    const storedToken = localStorage.getItem("auth_token");
+    const storedName = localStorage.getItem("userName");
+    const storedEmail = localStorage.getItem("userEmail");
+    const storedImage = localStorage.getItem("userImage");
+    const storedFullName = localStorage.getItem("fullName");
 
-			try {
-				const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/favorites`,
-					{
-						headers: {
-							Accept: "application/json",
-							Authorization: `Bearer ${authToken}`,
-						},
-						cache: "no-store",
-					}
-				);
+    // Set from localStorage (only if different to avoid waterfall renders)
+    if (storedToken && storedToken !== authToken) setAuthToken(storedToken);
+    if (storedName && storedName !== userName) setUserName(storedName);
+    if (storedEmail && storedEmail !== userEmail) setUserEmail(storedEmail);
+    if (storedImage && storedImage !== userImage) setUserImage(storedImage);
+    if (storedFullName && storedFullName !== fullName) setFullName(storedFullName);
 
-				if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    // Update from NextAuth session
+    if (status === "authenticated" && session?.user) {
+      const name = session.user.name || storedName || "مستخدم";
+      const email = session.user.email || storedEmail || null;
+      const image = session.user.image || storedImage || "";
+      const full = storedFullName || session.user.name || "مستخدم";
 
-				const dataJson = await res.json();
+      if (name !== userName) setUserName(name);
+      if (email !== userEmail) setUserEmail(email);
+      if (image !== userImage) setUserImage(image);
+      if (full !== fullName) setFullName(full);
 
-				const favoritesWithFlag: ProductI[] = (dataJson.data || []).map(
-					(fav: any) => ({
-						...fav.product,
-						is_favorite: true,
-					})
-				);
+      localStorage.setItem("userName", name);
+      if (email) localStorage.setItem("userEmail", email);
+      if (image) localStorage.setItem("userImage", image);
+      localStorage.setItem("fullName", full);
+    }
+  }, [session, status]); // intentionally not depending on userName/authToken to avoid cascades
 
-				setFavoriteProducts(favoritesWithFlag);
-			} catch (err) {
-				console.error("Error fetching favorites:", err);
-				setFavoriteProducts([]);
-			} finally {
-				setFavoriteProductsLoading(false);
-			}
-		};
-		fetchFavorites()
-	}, [authToken])
+  /* ---------------------- FETCH FAVORITES (MERGED: PRODUCTS + IDS) ---------------------- */
+  useEffect(() => {
+    let cancelled = false;
 
+    const fetchFavorites = async () => {
+      setFavoriteProductsLoading(true);
 
-	/* ---------------------- FIXED EFFECT (NO CASCADE) ---------------------- */
-	useEffect(() => {
-		if (typeof window === "undefined") return;
+      if (!authToken) {
+        setFavoriteProducts([]);
+        localStorage.removeItem("favorites");
+        setFavoriteProductsLoading(false);
+        return;
+      }
 
-		const storedToken = localStorage.getItem("auth_token");
-		const storedName = localStorage.getItem("userName");
-		const storedEmail = localStorage.getItem("userEmail");
-		const storedImage = localStorage.getItem("userImage");
-		const storedFullName = localStorage.getItem("fullName");
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/favorites`, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          cache: "no-store",
+        });
 
-		// Prevent waterfall renders by comparing before setting
-		if (storedToken && storedToken !== authToken) setAuthToken(storedToken);
-		if (storedName && storedName !== userName) setUserName(storedName);
-		if (storedEmail && storedEmail !== userEmail) setUserEmail(storedEmail);
-		if (storedImage && storedImage !== userImage) setUserImage(storedImage);
-		if (storedFullName && storedFullName !== fullName) setFullName(storedFullName);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-		// Update from NextAuth session
-		if (status === "authenticated" && session?.user) {
-			const name = session.user.name || storedName || "مستخدم";
-			const email = session.user.email || storedEmail || null;
-			const image = session.user.image || storedImage || "";
-			const full = storedFullName || session.user.name || "مستخدم";
+        const dataJson = await res.json();
+        const list = Array.isArray(dataJson?.data) ? dataJson.data : [];
 
-			if (name !== userName) setUserName(name);
-			if (email !== userEmail) setUserEmail(email);
-			if (image !== userImage) setUserImage(image);
-			if (full !== fullName) setFullName(full);
+        // Products with is_favorite flag
+        const favoritesWithFlag: ProductI[] = list.map((fav: any) => ({
+          ...fav.product,
+          is_favorite: true,
+        }));
 
-			localStorage.setItem("userName", name);
-			if (email) localStorage.setItem("userEmail", email);
-			if (image) localStorage.setItem("userImage", image);
-			localStorage.setItem("fullName", full);
-		}
-	}, [session, status]);
+        // IDs to localStorage (same request)
+        const ids = list
+          .map((fav: any) => fav?.product?.id)
+          .filter(Boolean);
 
-	/* ---------------------- FETCH FAVORITES WHEN TOKEN READY ---------------------- */
-	useEffect(() => {
-		if (!authToken) return;
+        if (!cancelled) {
+          setFavoriteProducts(favoritesWithFlag);
+          localStorage.setItem("favorites", JSON.stringify(ids));
+        }
+      } catch (err) {
+        console.error("Error fetching favorites:", err);
+        if (!cancelled) {
+          setFavoriteProducts([]);
+          localStorage.removeItem("favorites");
+        }
+      } finally {
+        if (!cancelled) setFavoriteProductsLoading(false);
+      }
+    };
 
-		const fetchFavorites = async () => {
-			try {
-				const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/favorites`, {
-					headers: {
-						Authorization: `Bearer ${authToken}`,
-					},
-				});
+    fetchFavorites();
 
-				const data = await res.json();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
 
-				if (data.status && Array.isArray(data.data)) {
-					const ids = data.data.map((item: any) => item.id);
-					localStorage.setItem("favorites", JSON.stringify(ids));
-				}
-			} catch (err) {
-				console.error("Error loading favorites:", err);
-			}
-		};
+  /* ------------------------------ LOGIN ------------------------------ */
+  const login = (
+    token: string,
+    name: string,
+    email?: string,
+    image?: string,
+    fullNameParam?: string
+  ) => {
+    setAuthToken(token);
+    setUserName(name);
+    setUserEmail(email || null);
+    setUserImage(image || "");
+    setFullName(fullNameParam || name);
 
-		fetchFavorites();
-	}, [authToken]);
+    localStorage.setItem("auth_token", token);
+    localStorage.setItem("userName", name);
+    if (email) localStorage.setItem("userEmail", email);
+    if (image) localStorage.setItem("userImage", image);
+    localStorage.setItem("fullName", fullNameParam || name);
+  };
 
-	/* ------------------------------ LOGIN ------------------------------ */
-	const login = (
-		token: string,
-		name: string,
-		email?: string,
-		image?: string,
-		fullNameParam?: string
-	) => {
-		setAuthToken(token);
-		setUserName(name);
-		setUserEmail(email || null);
-		setUserImage(image || "");
-		setFullName(fullNameParam || name);
+  /* ------------------------------ API LOGIN ------------------------------ */
+  const setAuthFromApi = (data: {
+    token: string;
+    name: string;
+    email?: string;
+    image?: string;
+    fullName?: string;
+  }) => {
+    login(data.token, data.name, data.email, data.image, data.fullName);
+  };
 
-		localStorage.setItem("auth_token", token);
-		localStorage.setItem("userName", name);
-		if (email) localStorage.setItem("userEmail", email);
-		if (image) localStorage.setItem("userImage", image);
-		localStorage.setItem("fullName", fullNameParam || name);
-	};
+  /* ------------------------------ LOGOUT ------------------------------ */
+  const logout = () => {
+    setAuthToken(null);
+    setUserName(null);
+    setUserEmail(null);
+    setUserImage(null);
+    setFullName(null);
 
-	/* ------------------------------ API LOGIN ------------------------------ */
-	const setAuthFromApi = (data: {
-		token: string;
-		name: string;
-		email?: string;
-		image?: string;
-		fullName?: string;
-	}) => {
-		login(data.token, data.name, data.email, data.image, data.fullName);
-	};
+    localStorage.clear();
+    nextAuthSignOut({ callbackUrl: "/login" });
+  };
 
-	/* ------------------------------ LOGOUT ------------------------------ */
-	const logout = () => {
-		setAuthToken(null);
-		setUserName(null);
-		setUserEmail(null);
-		setUserImage(null);
-		setFullName(null);
+  const favoriteIdsSet = useMemo(() => {
+    return new Set((favoriteProducts ?? []).map((p) => p.id));
+  }, [favoriteProducts]);
 
-		localStorage.clear();
-		nextAuthSignOut({ callbackUrl: "/login" });
-	};
-
-	const favoriteIdsSet = useMemo(() => {
-		return new Set((favoriteProducts ?? []).map((p) => p.id));
-	}, [favoriteProducts]);
-
-	return (
-		<AuthContext.Provider
-			value={{
-				authToken,
-				userName,
-				userEmail,
-				userImage,
-				fullName,
-				login,
-				logout,
-				setAuthFromApi,
-				favoriteProducts,
-				favoriteProductsLoading,
-				setFavoriteProducts,
-				favoriteIdsSet
-			}}
-		>
-			{children}
-		</AuthContext.Provider>
-	);
+  return (
+    <AuthContext.Provider
+      value={{
+        authToken,
+        userName,
+        userEmail,
+        userImage,
+        fullName,
+        login,
+        logout,
+        setAuthFromApi,
+        favoriteProducts,
+        favoriteProductsLoading,
+        setFavoriteProducts,
+        favoriteIdsSet,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = (): any => {
-	const context = useContext(AuthContext);
-	if (!context) throw new Error("useAuth must be used within an AuthProvider");
-	return context;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within an AuthProvider");
+  return context;
 };

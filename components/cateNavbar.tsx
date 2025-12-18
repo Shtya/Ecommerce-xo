@@ -13,6 +13,7 @@ import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/free-mode";
 import { usePathname } from "next/navigation";
+import { useAppContext } from "../src/context/AppContext";
 
 type Status = "idle" | "loading" | "success" | "error";
 
@@ -21,66 +22,17 @@ function cn(...c: (string | false | undefined | null)[]) {
 }
 
 export default function CateNavbar() {
-	const [categories, setCategories] = useState<CategoryI[]>([]);
-	const [status, setStatus] = useState<Status>("loading");
-	const [errorMsg, setErrorMsg] = useState<string | null>(null);
-	const pathname = usePathname();
-	useEffect(() => {
-		let alive = true;
+	const { parentCategories, loadingCategories } = useAppContext();
 
-		const getCats = async () => {
-			try {
-				setStatus("loading");
-				setErrorMsg(null);
+	const items = useMemo(() => parentCategories ?? [], [parentCategories]);
 
-				const data = await fetchApi("categories?type=parent");
-				const list = Array.isArray(data) ? data : [];
-
-				if (!alive) return;
-
-				setCategories(list);
-				setStatus("success");
-			} catch (error) {
-				console.log("Error fetching categories:", error);
-				if (!alive) return;
-
-				setCategories([]);
-				setStatus("error");
-				setErrorMsg("حدث خطأ أثناء تحميل الأقسام");
-			}
-		};
-
-		getCats();
-		return () => {
-			alive = false;
-		};
-	}, []);
-
-	const items = useMemo(() => categories ?? [], [categories]);
-	if (pathname === "/") return null;
-
-	if (status === "loading") return <CateNavbarSkeleton />;
+	if (loadingCategories) return <CateNavbarSkeleton />;
 
 	return (
 		<div className="w-full hidden1">
 			<div className="container !px-0 overflow-hidden border-b border-slate-200">
 				<div className="flex items-center justify-between gap-3 py-2.5">
-					{/* Error */}
-					{status === "error" && (
-						<div className="flex-1 text-center text-sm text-rose-600 font-bold">
-							{errorMsg || "حدث خطأ"}{" "}
-							<button
-								type="button"
-								onClick={() => location.reload()}
-								className="underline underline-offset-2 hover:opacity-80"
-							>
-								إعادة المحاولة
-							</button>
-						</div>
-					)}
-
-					{/* Slider */}
-					{status === "success" && <CategorySlider items={items} />}
+					<CategorySlider items={items} />
 				</div>
 			</div>
 		</div>
