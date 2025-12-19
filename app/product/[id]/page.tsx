@@ -223,34 +223,30 @@ function Pill({ children, tone = "slate" }: { children: React.ReactNode; tone?: 
 	return <span className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${map[tone]}`}>{children}</span>;
 }
 
-	function buildIdsPayload(apiData: any, opts: any) {
-		const sizeObj = apiData?.sizes?.find((s: any) => s?.name === opts.size);
-		const colorObj = apiData?.colors?.find((c: any) => c?.name === opts.color);
-		const materialObj = apiData?.materials?.find((m: any) => m?.name === opts.material);
-		const pmObj = apiData?.printing_methods?.find((p: any) => p?.name === opts.printing_method);
+function buildIdsPayload(apiData: any, opts: any) {
+	const sizeObj = apiData?.sizes?.find((s: any) => s?.name === opts.size);
+	const colorObj = apiData?.colors?.find((c: any) => c?.name === opts.color);
+	const materialObj = apiData?.materials?.find((m: any) => m?.name === opts.material);
+	const pmObj = apiData?.printing_methods?.find((p: any) => p?.name === opts.printing_method);
 
-		// ✅ print locations => array of IDs
-		const printLocationIds =
-			Array.isArray(opts.print_locations) && opts.print_locations.length
-				? opts.print_locations
-					.map((name:any) => apiData?.print_locations?.find((pl: any) => pl?.name === name)?.id)
-					.filter((id: any) => typeof id === "number")
-				: [];
+	// ✅ print locations => array of IDs
+	const printLocationIds =
+		Array.isArray(opts.print_locations) && opts.print_locations.length
+			? opts.print_locations
+				.map((name: any) => apiData?.print_locations?.find((pl: any) => pl?.name === name)?.id)
+				.filter((id: any) => typeof id === "number")
+			: [];
 
-		return {
-			size_id: typeof sizeObj?.id === "number" ? sizeObj.id : null,
-			color_id: typeof colorObj?.id === "number" ? colorObj.id : null,
-			material_id: typeof materialObj?.id === "number" ? materialObj.id : null,
-			printing_method_id: typeof pmObj?.id === "number" ? pmObj.id : null,
+	return {
+		size_id: typeof sizeObj?.id === "number" ? sizeObj.id : null,
+		color_id: typeof colorObj?.id === "number" ? colorObj.id : null,
+		material_id: typeof materialObj?.id === "number" ? materialObj.id : null,
+		printing_method_id: typeof pmObj?.id === "number" ? pmObj.id : null,
+		print_locations: printLocationIds,
+		embroider_locations: [],
+	};
+}
 
-			// ✅ API expects this field as array (usually ids)
-			print_locations: printLocationIds,
-
-			// keep as-is if you don’t support it yet
-			embroider_locations: [],
-		};
-	}
-	
 // -------------------------
 // ✅ helpers for pricing + selected_options payload
 // -------------------------
@@ -526,7 +522,7 @@ export default function ProductPageClient() {
 	useEffect(() => {
 		if (!loading) {
 			if (activeTab === "options" && !hasOptions) setActiveTab("reviews");
-			if (activeTab === "reviews" && !hasReviews && hasOptions) setActiveTab("options");
+			// if (activeTab === "reviews" && !hasReviews && hasOptions) setActiveTab("options");
 		}
 	}, [loading, hasOptions, hasReviews, activeTab]);
 
@@ -989,7 +985,7 @@ export default function ProductPageClient() {
 
 								{activeTab === "reviews" && (
 									<div className="space-y-5">
-										{!reviewsData && reviewsLoading ? (
+										{ reviewsLoading ? (
 											<ReviewsSkeleton />
 										) : reviewsError ? (
 											<div className="rounded-2xl border border-slate-200 bg-white p-5">

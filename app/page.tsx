@@ -7,7 +7,7 @@ import SliderComponent from "@/components/SliderComponent";
 import { fetchApi, fetchApi2 } from "@/lib/api";
 import { useAppContext } from "@/src/context/AppContext";
 import { BannerI } from "@/Types/BannerI";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -31,30 +31,16 @@ export default function Home() {
 	);
 
 	// ✅ load-more UI state
-	const [showLoadMoreBtn, setShowLoadMoreBtn] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
+
+	// ✅ sentinel ref for infinite scroll
+	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
 	// ✅ keep local state synced when context homeData updates (first load / refresh)
 	useEffect(() => {
 		setCategories2(homeData?.sub_categories || []);
 		setPaginationState(homeData?.sub_categories_pagination || null);
 	}, [homeData?.sub_categories, homeData?.sub_categories_pagination]);
-
-	// ✅ detect scroll near bottom => show button
-	useEffect(() => {
-		const onScroll = () => {
-			const scrollY = window.scrollY;
-			const vh = window.innerHeight;
-			const full = document.documentElement.scrollHeight;
-
-			const nearBottom = scrollY + vh >= full - 500;
-			setShowLoadMoreBtn(nearBottom);
-		};
-
-		window.addEventListener("scroll", onScroll, { passive: true });
-		onScroll();
-		return () => window.removeEventListener("scroll", onScroll);
-	}, []);
 
 	const loadMore = useCallback(async () => {
 		if (!paginationState?.next_page) return;
@@ -81,10 +67,37 @@ export default function Home() {
 
 			setPaginationState(newPagination);
 		} catch (e) {
+			// optionally toast/error UI
 		} finally {
 			setLoadingMore(false);
 		}
 	}, [paginationState?.next_page, loadingMore]);
+
+	// ✅ infinite scroll observer
+	const hasNext = Boolean(paginationState?.next_page);
+
+	useEffect(() => {
+		if (!hasNext) return;
+
+		const el = loadMoreRef.current;
+		if (!el) return;
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const first = entries[0];
+				if (!first?.isIntersecting) return;
+				loadMore();
+			},
+			{
+				root: null,
+				rootMargin: "600px", // ✅ preload before bottom
+				threshold: 0,
+			}
+		);
+
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [hasNext, loadMore]);
 
 	// ------------------ slider (your existing code) ------------------
 	const [mainSlider, setMainSlider] = useState<BannerI[]>([]);
@@ -118,8 +131,6 @@ export default function Home() {
 		() => (mainSlider?.[0]?.items || []).map((i) => i.image),
 		[mainSlider]
 	);
-
-	const hasNext = Boolean(paginationState?.next_page);
 
 	return (
 		<div className="container  !mt-8 !mb-8">
@@ -220,20 +231,43 @@ export default function Home() {
 						})
 					)}
 				</div>
-				{/* ✅ Load More button appears only near bottom */}
-				{hasNext && showLoadMoreBtn && (
-					<div className=" flex items-center justify-center mt-3  z-[9999]">
-						<button
-							onClick={loadMore}
-							disabled={loadingMore}
-							className="px-6 cursor-pointer py-3 rounded-2xl bg-[#14213d] text-white font-extrabold shadow-lg disabled:opacity-60"
-						>
-							{loadingMore ? "جاري تحميل المزيد..." : "تحميل المزيد"}
-						</button>
+
+				{/* ✅ Infinite scroll sentinel */}
+				{hasNext && (
+					<div className="mt-8 flex items-center justify-center">
+						<div ref={loadMoreRef} className="h-1 w-full" />
+					</div>
+				)}
+
+				{/* ✅ Pretty loader when fetching more */}
+				{loadingMore && (
+					<div className="mt-10 flex items-center justify-center">
+						<div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white/80 backdrop-blur px-6 py-4 shadow-lg">
+							{/* animated dots */}
+							<div className="flex gap-1">
+								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce [animation-delay:-0.3s]" />
+								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce [animation-delay:-0.15s]" />
+								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce" />
+							</div>
+
+							<p className="text-sm font-extrabold text-slate-700 tracking-wide">
+								جاري تحميل المزيد
+							</p>
+						</div>
+					</div>
+				)}
+
+
+
+				{/* ✅ end message */}
+				{!hasNext && categories2.length > 0 && !loadingHome && (
+					<div className="mt-10 flex items-center justify-center">
+						<p className="text-sm font-bold text-slate-500">
+							وصلت لنهاية الأقسام ✅
+						</p>
 					</div>
 				)}
 			</div>
-
 		</div>
 	);
 }

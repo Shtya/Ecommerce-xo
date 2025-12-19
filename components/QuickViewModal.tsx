@@ -97,7 +97,7 @@ export default function QuickViewModal({
 				<>
 					{/* Backdrop */}
 					<motion.div
-						className="fixed inset-0 z-[80] bg-black/60"
+						className="fixed inset-0 z-[80000] bg-black/60"
 						initial={{ opacity: 0 }}
 						animate={{ opacity: 1 }}
 						exit={{ opacity: 0 }}
@@ -106,7 +106,7 @@ export default function QuickViewModal({
 
 					{/* Wrapper */}
 					<motion.div
-						className="fixed inset-0 z-[90] flex items-center justify-center p-3 md:p-6"
+						className="fixed inset-0 z-[90000] flex items-center justify-center p-3 md:p-6"
 						initial={{ opacity: 0, y: 12, scale: 0.98 }}
 						animate={{ opacity: 1, y: 0, scale: 1 }}
 						exit={{ opacity: 0, y: 12, scale: 0.98 }}
