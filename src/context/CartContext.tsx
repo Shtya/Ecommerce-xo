@@ -47,6 +47,7 @@ interface CartItem {
 	design_service?: string | null;
 	design_service_id?: number | null;
 	is_sample?: boolean;
+	image_design ?: string ;
 }
 
 interface CartContextType {
@@ -166,6 +167,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 						design_service: item.design_service,
 						design_service_id: item.design_service_id,
 						is_sample: item.is_sample === 1,
+						...item
 					};
 				});
 				setCart(items);
@@ -314,7 +316,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 			if (res.ok && data.status) {
 				toast.success("تمت الإضافة إلى السلة بنجاح");
 				await refreshCart();
-				return true;
+				return data;
 			} else {
 				toast.error(data.message || "فشل إضافة المنتج");
 				return false;

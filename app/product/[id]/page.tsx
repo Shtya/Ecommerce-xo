@@ -1,6 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+/**
+ * ✅ ONE FILE VERSION (ProductPageClient + StickerForm + shared utils)
+ *
+ * Fixes applied:
+ * 1) ❌ لا نرسل (المقاس/اللون/الخامة/طريقة الطباعة/مكان الطباعة/كمية المقاس) داخل selected_options
+ *    ✅ تُرسل فقط كمفاتيح IDs + quantity:
+ *    - size_id, color_id, material_id, printing_method_id, print_locations (ids), quantity
+ *
+ * 2) ✅ خدمة التصميم (خدمة تصميم) لا تُضرب في الكمية (One-time)
+ *    - في الحساب (extrasTotal) + داخل selected_options additional_price
+ *
+ * 3) ✅ (I have design) يرفع الملف AFTER add-to-cart فقط عبر:
+ *    POST  {API_URL}/upload-image
+ *    FormData: img, cart_item_id
+ *
+ * 4) ✅ StickerForm (Cart upload) تم توحيد الرفع لنفس endpoint /upload-image
+ *    (في cart mode فقط، لأن لازم cart_item_id)
+ */
+
+import React, { useEffect, useMemo, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
@@ -22,10 +41,28 @@ import { useCart } from "@/src/context/CartContext";
 import { FiAlertTriangle } from "react-icons/fi";
 import { Trash2, Star, ChevronLeft, ChevronRight, ShieldCheck, Truck, Tags, Package } from "lucide-react";
 
-import { ProductPageSkeleton } from "../../../components/skeletons/HomeSkeletons";
+import { ProductPageSkeleton, StickerFormSkeleton } from "../../../components/skeletons/HomeSkeletons";
 
-// ✅ shared StickerForm (same used in Cart)
-import { StickerForm } from "@/components/StickerForm";
+// MUI (StickerForm)
+import {
+	Box,
+	FormControl,
+	InputLabel,
+	Select,
+	MenuItem,
+	FormHelperText,
+	CircularProgress,
+	Alert,
+	Button,
+	Checkbox,
+	ListItemText,
+	Divider,
+} from "@mui/material";
+import { Save, CheckCircle, Warning, Info, Refresh } from "@mui/icons-material";
+
+/* ------------------------------------------
+ * Types
+ * ------------------------------------------ */
 
 type TabKey = "options" | "reviews";
 
@@ -48,35 +85,8 @@ type Review = {
 	user?: ReviewUser;
 };
 
-type ReviewsStats = {
-	average_rating: number;
-	total_reviews: number;
-	rating_distribution: {
-		[k: string]: { stars: number; count: number; percentage: number };
-	};
-};
-
-type ReviewsPagination = {
-	total: number;
-	per_page: number;
-	current_page: number;
-	last_page: number;
-};
-
-type ReviewsResponse = {
-	status: boolean;
-	message: string;
-	data: {
-		product: { id: number; name: string; image: string };
-		stats: ReviewsStats;
-		user_review: Review | null;
-		reviews: Review[];
-		pagination: ReviewsPagination;
-	};
-};
-
 // ✅ SelectedOptions (must match StickerForm getOptions keys)
-interface SelectedOptions {
+export type SelectedOptions = {
 	size: string;
 
 	// ✅ tier selection for size
@@ -87,14 +97,143 @@ interface SelectedOptions {
 
 	color: string;
 	material: string;
-	optionGroups: { [groupName: string]: string };
+	optionGroups: Record<string, string>;
 	printing_method: string;
 
-	// ✅ multi-select print locations
+	// ✅ multi-select print locations (names in UI)
 	print_locations: string[];
 
 	isValid: boolean;
+};
+
+export interface StickerFormHandle {
+	getOptions: () => SelectedOptions;
+	validate: () => boolean;
 }
+
+/* ------------------------------------------
+ * Shared helpers / rules
+ * ------------------------------------------ */
+
+const num = (v: any) => {
+	const x = typeof v === "string" ? Number(v) : typeof v === "number" ? v : Number(v ?? 0);
+	return Number.isFinite(x) ? x : 0;
+};
+
+function getQty(opts: SelectedOptions) {
+	const q = Math.floor(num(opts?.size_quantity));
+	return q > 0 ? q : 1;
+}
+
+function computeSizeBaseTotal(opts: SelectedOptions) {
+	const total = num(opts?.size_total_price);
+	if (total > 0) return total;
+
+	const qty = num(opts?.size_quantity);
+	const unit = num(opts?.size_price_per_unit);
+	const calc = qty > 0 && unit > 0 ? qty * unit : 0;
+	return calc > 0 ? calc : 0;
+}
+
+/**
+ * ✅ One-time service detector (Design service)
+ * IMPORTANT: اسم الجروب عندك "خدمة تصميم" (بدون "ال")
+ * فده كان سبب إنّه بيتضرب في الكمية.
+ */
+function isOneTimeServiceOption(optionName: string, optionValue?: string) {
+	const name = String(optionName || "").trim().toLowerCase();
+	const value = String(optionValue || "").trim().toLowerCase();
+
+	// Arabic variants
+	const ar1 = name.includes("خدمة تصميم");
+	const ar2 = name.includes("خدمة التصميم");
+	const ar3 = value.includes("خدمة تصميم") || value.includes("خدمة التصميم");
+
+	// English variants
+	const en1 = name.includes("design");
+	const en2 = value.includes("design");
+
+	return ar1 || ar2 || ar3 || en1 || en2;
+}
+
+/**
+ * ✅ RULE (1) IDs payload only (no duplication in selected_options)
+ */
+function buildIdsPayload(apiData: any, opts: SelectedOptions) {
+	const sizeObj = apiData?.sizes?.find((s: any) => s?.name === opts.size);
+	const colorObj = apiData?.colors?.find((c: any) => c?.name === opts.color);
+	const materialObj = apiData?.materials?.find((m: any) => m?.name === opts.material);
+	const pmObj = apiData?.printing_methods?.find((p: any) => p?.name === opts.printing_method);
+
+	// ✅ print locations => IDs only
+	const printLocationIds =
+		Array.isArray(opts.print_locations) && opts.print_locations.length
+			? opts.print_locations
+				.map((name: any) => apiData?.print_locations?.find((pl: any) => pl?.name === name)?.id)
+				.filter((id: any) => typeof id === "number")
+			: [];
+
+	return {
+		size_id: typeof sizeObj?.id === "number" ? sizeObj.id : null,
+		color_id: typeof colorObj?.id === "number" ? colorObj.id : null,
+		material_id: typeof materialObj?.id === "number" ? materialObj.id : null,
+		printing_method_id: typeof pmObj?.id === "number" ? pmObj.id : null,
+		print_locations: printLocationIds,
+		embroider_locations: [],
+	};
+}
+
+/**
+ * ✅ RULE (1):
+ * selected_options => optionGroups ONLY
+ *
+ * ✅ RULE (2):
+ * - معظم الإضافات per-unit => تتضرب في qty
+ * - "خدمة تصميم" => one-time (لا تُضرب في qty)
+ */
+function buildSelectedOptionsWithPrice(apiData: any, opts: SelectedOptions) {
+	const selected_options: Array<{ option_name: string; option_value: string; additional_price: number }> = [];
+	const qty = getQty(opts);
+
+	Object.entries(opts.optionGroups || {}).forEach(([group, value]) => {
+		if (!value || value === "اختر") return;
+
+		const row = apiData?.options?.find(
+			(o: any) =>
+				String(o.option_name || "").trim() === String(group).trim() &&
+				String(o.option_value || "").trim() === String(value).trim()
+		);
+
+		const perUnit = num(row?.additional_price);
+		const oneTime = isOneTimeServiceOption(group, value);
+
+		selected_options.push({
+			option_name: group,
+			option_value: value,
+			additional_price: oneTime ? perUnit : perUnit * qty,
+		});
+	});
+
+	return selected_options;
+}
+
+function extractValueFromOptions(options: any[], optionName: string) {
+	if (!options || !Array.isArray(options)) return null;
+	const option = options.find((opt: any) => String(opt.option_name || "").trim() === String(optionName || "").trim());
+	return option ? option.option_value : null;
+}
+
+function extractValuesFromOptions(options: any[], optionName: string) {
+	if (!options || !Array.isArray(options)) return [];
+	return options
+		.filter((opt: any) => String(opt.option_name || "").trim() === String(optionName || "").trim())
+		.map((x: any) => String(x.option_value || "").trim())
+		.filter(Boolean);
+}
+
+/* ------------------------------------------
+ * UI helpers
+ * ------------------------------------------ */
 
 const fadeUp: any = {
 	hidden: { opacity: 0, y: 14 },
@@ -202,153 +341,945 @@ function Pill({ children, tone = "slate" }: { children: React.ReactNode; tone?: 
 	return <span className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${map[tone]}`}>{children}</span>;
 }
 
-function buildIdsPayload(apiData: any, opts: any) {
-	const sizeObj = apiData?.sizes?.find((s: any) => s?.name === opts.size);
-	const colorObj = apiData?.colors?.find((c: any) => c?.name === opts.color);
-	const materialObj = apiData?.materials?.find((m: any) => m?.name === opts.material);
-	const pmObj = apiData?.printing_methods?.find((p: any) => p?.name === opts.printing_method);
-
-	// ✅ print locations => array of IDs
-	const printLocationIds =
-		Array.isArray(opts.print_locations) && opts.print_locations.length
-			? opts.print_locations
-				.map((name: any) => apiData?.print_locations?.find((pl: any) => pl?.name === name)?.id)
-				.filter((id: any) => typeof id === "number")
-			: [];
-
-	return {
-		size_id: typeof sizeObj?.id === "number" ? sizeObj.id : null,
-		color_id: typeof colorObj?.id === "number" ? colorObj.id : null,
-		material_id: typeof materialObj?.id === "number" ? materialObj.id : null,
-		printing_method_id: typeof pmObj?.id === "number" ? pmObj.id : null,
-		print_locations: printLocationIds,
-		embroider_locations: [],
-	};
+function OptChip({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+			<p className="text-xs text-slate-500 font-bold">{label}</p>
+			<p className="text-sm font-extrabold text-slate-900 mt-1">{value}</p>
+		</div>
+	);
 }
 
-// -------------------------
-// ✅ helpers for pricing + selected_options payload
-// -------------------------
-const num = (v: any) => {
-	const x = typeof v === "string" ? Number(v) : typeof v === "number" ? v : Number(v ?? 0);
-	return Number.isFinite(x) ? x : 0;
+const ratingLabels: Record<number, string> = {
+	1: "سيئ جدًا",
+	2: "سيئ",
+	3: "متوسط",
+	4: "جيد جدًا",
+	5: "ممتاز",
 };
 
-// ✅ quantity multiplier (defaults to 1)
-function getQty(opts: SelectedOptions) {
-	const q = Math.floor(num(opts?.size_quantity));
-	return q > 0 ? q : 1;
+interface StarRatingInputProps {
+	value: number;
+	onChange: (v: number) => void;
+	disabled?: boolean;
 }
 
-// ✅ base price should be (unit * qty) if total not provided
-function computeSizeBaseTotal(opts: SelectedOptions) {
-	const total = num(opts?.size_total_price);
-	if (total > 0) return total;
+export function StarRatingInput({ value, onChange, disabled = false }: StarRatingInputProps) {
+	const [hovered, setHovered] = useState<number | null>(null);
+	const activeValue = hovered ?? value;
 
-	const qty = num(opts?.size_quantity);
-	const unit = num(opts?.size_price_per_unit);
-	const calc = qty > 0 && unit > 0 ? qty * unit : 0;
-	return calc > 0 ? calc : 0;
+	return (
+		<div className="flex  items-center gap-2">
+			<div className={`flex items-center  gap-1 ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}>
+				{[1, 2, 3, 4, 5].map((star) => {
+					const filled = star <= activeValue;
+
+					return (
+						<motion.button
+							key={star}
+							type="button"
+							whileHover={!disabled ? { scale: 1.15 } : undefined}
+							whileTap={!disabled ? { scale: 0.95 } : undefined}
+							onMouseEnter={() => !disabled && setHovered(star)}
+							onMouseLeave={() => !disabled && setHovered(null)}
+							onClick={() => !disabled && onChange(star)}
+							className="focus:outline-none"
+							aria-label={`تقييم ${star} نجوم`}
+						>
+							<Star className={`w-10 h-10 transition-colors ${filled ? "text-amber-400" : "text-slate-300"}`} fill={filled ? "currentColor" : "none"} />
+						</motion.button>
+					);
+				})}
+			</div>
+
+			<motion.div key={activeValue} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="text-sm font-extrabold text-slate-700">
+				{ratingLabels[activeValue] ?? ""}
+			</motion.div>
+		</div>
+	);
 }
 
-function buildSelectedOptionsWithPrice(apiData: any, opts: SelectedOptions) {
-	const selected_options: Array<{ option_name: string; option_value: string; additional_price: number }> = [];
-	const qty = getQty(opts);
+/* ------------------------------------------
+ * StickerForm Component (shared)
+ * ------------------------------------------ */
 
-	// ✅ size (name)
-	if (opts.size && opts.size !== "اختر") {
-		selected_options.push({ option_name: "المقاس", option_value: opts.size, additional_price: 0 });
-	}
+type DesignSendMethod = "whatsapp" | "email" | "upload" | null;
 
-	// ✅ size tier (quantity pricing info)
-	if (opts.size_tier_id && opts.size_quantity && opts.size_total_price != null) {
-		selected_options.push({
-			option_name: "كمية المقاس",
-			option_value: String(opts.size_quantity),
-			additional_price: 0,
+function getSocialValue(socialMedia: any, key: "whatsapp" | "email") {
+	const arr = Array.isArray(socialMedia) ? socialMedia : [];
+	const item = arr.find((x: any) => String(x?.key).toLowerCase() === key);
+	const value = String(item?.value || "").trim();
+	return value || null;
+}
+
+interface StickerFormProps {
+	cartItemId?: number;
+	productId: number;
+	productData?: any;
+
+	onOptionsChange?: (options: SelectedOptions) => void;
+	showValidation?: boolean;
+	// ✅ NEW
+	onDesignFileChange?: (file: File | null) => void;
+}
+
+export const StickerForm = forwardRef<StickerFormHandle, StickerFormProps>(function StickerForm(
+	{ cartItemId, productId, productData, onOptionsChange, showValidation = false, onDesignFileChange },
+	ref
+) {
+	const { updateCartItem, fetchCartItemOptions } = useCart();
+	const { authToken: token, user, userId } = useAuth() as any;
+	const { socialMedia } = useAppContext() as any;
+
+	const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+	// main states
+	const [apiData, setApiData] = useState<any>(null);
+	const [formLoading, setFormLoading] = useState(true);
+	const [apiError, setApiError] = useState<string | null>(null);
+
+	const [size, setSize] = useState("اختر");
+	const [color, setColor] = useState("اختر");
+	const [material, setMaterial] = useState("اختر");
+	const [optionGroups, setOptionGroups] = useState<Record<string, string>>({});
+	const [printingMethod, setPrintingMethod] = useState("اختر");
+	const [printLocations, setPrintLocations] = useState<string[]>([]);
+
+	// tiers
+	const [sizeTierId, setSizeTierId] = useState<number | null>(null);
+	const [sizeTierQty, setSizeTierQty] = useState<number | null>(null);
+	const [sizeTierUnit, setSizeTierUnit] = useState<number | null>(null);
+	const [sizeTierTotal, setSizeTierTotal] = useState<number | null>(null);
+
+	// save UI (cart mode)
+	const [saving, setSaving] = useState(false);
+	const [showSaveButton, setShowSaveButton] = useState(false);
+	const [savedSuccessfully, setSavedSuccessfully] = useState(false);
+
+	// design (optional in cart mode only)
+	const [designFile, setDesignFile] = useState<File | null>(null);
+	const [designSendMethod, setDesignSendMethod] = useState<DesignSendMethod>(null);
+	const [designUploading, setDesignUploading] = useState(false);
+
+	const groupedOptions = useMemo(() => {
+		const list = Array.isArray(apiData?.options) ? apiData.options : [];
+		const out: Record<string, any[]> = {};
+		list.forEach((o: any) => {
+			const k = String(o.option_name || "").trim();
+			if (!k) return;
+			out[k] = out[k] || [];
+			out[k].push(o);
 		});
-		selected_options.push({
-			option_name: "سعر المقاس الإجمالي",
-			option_value: String(opts.size_total_price),
-			additional_price: 0,
+		return out;
+	}, [apiData]);
+
+	const requiredOptionGroups = useMemo(() => {
+		const required: string[] = [];
+		Object.keys(groupedOptions).forEach((k) => {
+			const items = groupedOptions[k] || [];
+			if (items.some((x: any) => Boolean(x?.is_required))) required.push(k);
 		});
-		if (opts.size_price_per_unit != null) {
-			selected_options.push({
-				option_name: "سعر الوحدة",
-				option_value: String(opts.size_price_per_unit),
-				additional_price: 0,
-			});
+		return required;
+	}, [groupedOptions]);
+
+	const selectedSizeObj = useMemo(() => {
+		return (apiData?.sizes || []).find((s: any) => String(s?.name).trim() === String(size).trim()) || null;
+	}, [apiData, size]);
+
+	const sizeTiers = useMemo(() => {
+		const tiers = selectedSizeObj?.tiers;
+		return Array.isArray(tiers) ? tiers : [];
+	}, [selectedSizeObj]);
+
+	const needSize = (apiData?.sizes?.length ?? 0) > 0;
+	const needColor = (apiData?.colors?.length ?? 0) > 0;
+	const needMaterial = (apiData?.materials?.length ?? 0) > 0;
+	const needPrintingMethod = (apiData?.printing_methods?.length ?? 0) > 0;
+	const needPrintLocation = (apiData?.print_locations?.length ?? 0) > 0;
+	const needSizeTier = needSize && size !== "اختر" && sizeTiers.length > 0;
+
+	const validateCurrentOptions = useCallback(() => {
+		if (!apiData) return false;
+
+		let isValid = true;
+
+		if (needSize && size === "اختر") isValid = false;
+		if (needSizeTier && !sizeTierId) isValid = false;
+
+		if (needColor && color === "اختر") isValid = false;
+		if (needMaterial && material === "اختر") isValid = false;
+
+		requiredOptionGroups.forEach((g) => {
+			const v = optionGroups?.[g];
+			if (!v || v === "اختر") isValid = false;
+		});
+
+		if (needPrintingMethod && printingMethod === "اختر") isValid = false;
+		if (needPrintLocation && (!Array.isArray(printLocations) || printLocations.length === 0)) isValid = false;
+
+		return isValid;
+	}, [
+		apiData,
+		needSize,
+		needSizeTier,
+		needColor,
+		needMaterial,
+		needPrintingMethod,
+		needPrintLocation,
+		size,
+		sizeTierId,
+		color,
+		material,
+		optionGroups,
+		requiredOptionGroups,
+		printingMethod,
+		printLocations,
+	]);
+
+	const getOptionsObj = useCallback((): SelectedOptions => {
+		return {
+			size,
+			size_tier_id: sizeTierId,
+			size_quantity: sizeTierQty,
+			size_price_per_unit: sizeTierUnit,
+			size_total_price: sizeTierTotal,
+			color,
+			material,
+			optionGroups,
+			printing_method: printingMethod,
+			print_locations: printLocations,
+			isValid: validateCurrentOptions(),
+		};
+	}, [size, sizeTierId, sizeTierQty, sizeTierUnit, sizeTierTotal, color, material, optionGroups, printingMethod, printLocations, validateCurrentOptions]);
+
+	useImperativeHandle(ref, () => ({
+		getOptions: () => getOptionsObj(),
+		validate: () => validateCurrentOptions(),
+	}));
+
+	// load apiData from props (both pages)
+	useEffect(() => {
+		setApiError(null);
+		setFormLoading(true);
+
+		try {
+			if (!productData) throw new Error("لا توجد بيانات للمنتج");
+			setApiData(productData);
+
+			// init groups
+			if (Array.isArray(productData?.options)) {
+				const out: Record<string, string> = {};
+				productData.options.forEach((o: any) => {
+					const k = String(o.option_name || "").trim();
+					if (!k) return;
+					if (!out[k]) out[k] = "اختر";
+				});
+				setOptionGroups(out);
+			} else {
+				setOptionGroups({});
+			}
+
+			setPrintingMethod("اختر");
+			setPrintLocations([]);
+			setSizeTierId(null);
+			setSizeTierQty(null);
+			setSizeTierUnit(null);
+			setSizeTierTotal(null);
+
+			setDesignFile(null);
+			setDesignSendMethod(null);
+			setDesignUploading(false);
+		} catch (err: any) {
+			setApiError(err?.message || "حدث خطأ أثناء تحميل الخيارات");
+			setApiData(null);
+		} finally {
+			setFormLoading(false);
 		}
-	}
+	}, [productData]);
 
-	// ✅ NOTE:
-	// All the below additional_price values are treated as PER-UNIT and multiplied by qty.
-	// If you have some options that are "per order" (not per piece), remove * qty for them.
+	// push changes to parent (product page summary)
+	const pushTimer = useRef<any>(null);
+	useEffect(() => {
+		if (!onOptionsChange) return;
+		if (pushTimer.current) clearTimeout(pushTimer.current);
 
-	// color
-	if (opts.color && opts.color !== "اختر") {
-		const c = apiData?.colors?.find((x: any) => x.name === opts.color);
-		const perUnit = num(c?.additional_price);
-		selected_options.push({
-			option_name: "اللون",
-			option_value: opts.color,
-			additional_price: perUnit * qty,
-		});
-	}
+		pushTimer.current = setTimeout(() => {
+			onOptionsChange(getOptionsObj());
+		}, 80);
 
-	// material
-	if (opts.material && opts.material !== "اختر") {
-		const m = apiData?.materials?.find((x: any) => x.name === opts.material);
-		const perUnit = num(m?.additional_price);
-		selected_options.push({
-			option_name: "الخامة",
-			option_value: opts.material,
-			additional_price: perUnit * qty,
-		});
-	}
+		return () => clearTimeout(pushTimer.current);
+	}, [getOptionsObj, onOptionsChange]);
 
-	// option groups
-	Object.entries(opts.optionGroups || {}).forEach(([group, value]) => {
-		if (!value || value === "اختر") return;
-		const row = apiData?.options?.find(
-			(o: any) =>
-				String(o.option_name || "").trim() === String(group).trim() &&
-				String(o.option_value || "").trim() === String(value).trim()
-		);
-		const perUnit = num(row?.additional_price);
-		selected_options.push({
-			option_name: group,
-			option_value: value,
-			additional_price: perUnit * qty,
-		});
-	});
+	// CART MODE: load saved options (⚠️ backend may have old selected_options; we try best)
+	const loadSavedOptions = useCallback(async () => {
+		if (!cartItemId) return;
+		if (!apiData) return;
 
-	// printing method
-	if (opts.printing_method && opts.printing_method !== "اختر") {
-		const pm = apiData?.printing_methods?.find((x: any) => x.name === opts.printing_method);
-		const perUnit = num(pm?.base_price ?? pm?.pivot_price);
-		selected_options.push({
-			option_name: "طريقة الطباعة",
-			option_value: opts.printing_method,
-			additional_price: perUnit * qty,
-		});
-	}
+		try {
+			const saved = await fetchCartItemOptions(cartItemId);
+			if (!saved) return;
 
-	// ✅ print locations (MULTI)
-	if (Array.isArray(opts.print_locations) && opts.print_locations.length > 0) {
-		opts.print_locations.forEach((locName) => {
-			const pl = apiData?.print_locations?.find((x: any) => x.name === locName);
-			const perUnit = num(pl?.additional_price ?? pl?.pivot_price);
-			selected_options.push({
-				option_name: "مكان الطباعة",
-				option_value: locName,
-				additional_price: perUnit * qty,
+			// Prefer new backend fields if exist; else fallback to selected_options
+			// (لو الباك إند رجّع size_id وغيره، انت ممكن توسّع restore هنا)
+			const sizeFrom = extractValueFromOptions(saved.selected_options, "المقاس");
+			const colorFrom = extractValueFromOptions(saved.selected_options, "اللون");
+			const matFrom = extractValueFromOptions(saved.selected_options, "الخامة");
+			const pmFrom = extractValueFromOptions(saved.selected_options, "طريقة الطباعة");
+
+			const qtyFrom = extractValueFromOptions(saved.selected_options, "كمية المقاس");
+			const totalFrom = extractValueFromOptions(saved.selected_options, "سعر المقاس الإجمالي");
+			const unitFrom = extractValueFromOptions(saved.selected_options, "سعر الوحدة");
+			const locsFrom = extractValuesFromOptions(saved.selected_options, "مكان الطباعة");
+
+			setSize(sizeFrom || saved.size || "اختر");
+			setColor(colorFrom || (saved.color?.name || saved.color) || "اختر");
+			setMaterial(matFrom || saved.material || "اختر");
+			setPrintingMethod(pmFrom || "اختر");
+			setPrintLocations(locsFrom || []);
+
+			const q = qtyFrom ? Number(qtyFrom) : null;
+			const t = totalFrom ? Number(totalFrom) : null;
+			const u = unitFrom ? Number(unitFrom) : null;
+
+			// restore tier by qty if possible
+			if (q && apiData?.sizes) {
+				const sz = apiData.sizes.find((s: any) => s?.name === (sizeFrom || saved.size));
+				const tier = (sz?.tiers || []).find((x: any) => Number(x?.quantity) === q) || null;
+
+				const tierUnit = num(tier?.price_per_unit) || num(u);
+				const backendTotal = num(tier?.total_price);
+				const computed = q && tierUnit ? q * tierUnit : 0;
+
+				setSizeTierId(tier?.id ?? null);
+				setSizeTierQty(tier?.quantity ?? q ?? null);
+				setSizeTierUnit(tierUnit || null);
+				setSizeTierTotal(backendTotal > 0 ? backendTotal : t && t > 0 ? t : computed > 0 ? computed : null);
+			}
+
+			// restore option groups (only real groups, skip "system" ones)
+			const out: Record<string, string> = {};
+			Object.keys(groupedOptions).forEach((g) => (out[g] = "اختر"));
+
+			if (Array.isArray(saved.selected_options)) {
+				saved.selected_options.forEach((opt: any) => {
+					const name = String(opt.option_name || "").trim();
+					const value = String(opt.option_value || "").trim();
+					if (!name || !value) return;
+
+					// skip system fields (should not be in new version anyway)
+					if (["المقاس", "اللون", "الخامة", "طريقة الطباعة", "مكان الطباعة", "كمية المقاس", "سعر المقاس الإجمالي", "سعر الوحدة"].includes(name)) return;
+
+					if (Object.prototype.hasOwnProperty.call(out, name)) out[name] = value;
+				});
+			}
+
+			setOptionGroups(out);
+			setShowSaveButton(false);
+		} catch {
+			// ignore
+		}
+	}, [cartItemId, apiData, fetchCartItemOptions, groupedOptions]);
+
+	useEffect(() => {
+		if (!cartItemId || !apiData) return;
+		loadSavedOptions();
+	}, [cartItemId, apiData, loadSavedOptions]);
+
+	const markDirty = () => {
+		if (!cartItemId) return; // only show save UI in cart mode
+		setShowSaveButton(true);
+		setSavedSuccessfully(false);
+	};
+
+	const handleSizeChange = (value: string) => {
+		setSize(value);
+		setSizeTierId(null);
+		setSizeTierQty(null);
+		setSizeTierUnit(null);
+		setSizeTierTotal(null);
+		markDirty();
+	};
+
+	// compute total if backend total missing
+	const handleTierChange = (tierIdStr: string) => {
+		const tierId = Number(tierIdStr);
+		const tier = sizeTiers.find((t: any) => Number(t?.id) === tierId) || null;
+
+		const qty = tier ? Number(tier.quantity) : null;
+		const unit = tier ? num(tier.price_per_unit) : null;
+		const backendTotal = tier ? num(tier.total_price) : 0;
+
+		const computedTotal = qty && unit ? qty * unit : 0;
+		const finalTotal = backendTotal > 0 ? backendTotal : computedTotal > 0 ? computedTotal : null;
+
+		setSizeTierId(tier ? Number(tier.id) : null);
+		setSizeTierQty(qty);
+		setSizeTierUnit(unit);
+		setSizeTierTotal(finalTotal);
+
+		markDirty();
+	};
+
+	const saveAllOptions = async () => {
+		if (!cartItemId || !apiData) return;
+
+		const opts = getOptionsObj();
+
+		// ✅ NEW RULES payload
+		const selected_options = buildSelectedOptionsWithPrice(apiData, opts);
+		const idsPayload = buildIdsPayload(apiData, opts);
+
+		const qty = Math.max(1, Number(opts?.size_quantity || 1));
+
+		const payload: any = {
+			...idsPayload,
+			selected_options,
+			quantity: needSizeTier ? qty : undefined,
+		};
+
+		try {
+			setSaving(true);
+			const success = await updateCartItem(cartItemId, payload);
+			if (success) {
+				setSavedSuccessfully(true);
+				setShowSaveButton(false);
+				setTimeout(() => setSavedSuccessfully(false), 2500);
+				toast.success("تم حفظ التغييرات ✅");
+			}
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const resetAllOptions = () => {
+		setSize("اختر");
+		setColor("اختر");
+		setMaterial("اختر");
+
+		const resetGroups: Record<string, string> = {};
+		Object.keys(groupedOptions).forEach((g) => (resetGroups[g] = "اختر"));
+		setOptionGroups(resetGroups);
+
+		setPrintingMethod("اختر");
+		setPrintLocations([]);
+
+		setSizeTierId(null);
+		setSizeTierQty(null);
+		setSizeTierUnit(null);
+		setSizeTierTotal(null);
+
+		setDesignFile(null);
+		setDesignSendMethod(null);
+		setDesignUploading(false);
+
+		markDirty();
+	};
+
+	// design service (show only if "خدمة تصميم" === "لدى تصميم")
+	const designServiceValue = String(optionGroups?.["خدمة تصميم"] ?? optionGroups?.["خدمة التصميم"] ?? "اختر").trim();
+	const showDesignBoxes = designServiceValue === "لدى تصميم";
+
+	const whatsappFromSocial = getSocialValue(socialMedia, "whatsapp");
+	const emailFromSocial = getSocialValue(socialMedia, "email");
+
+	const waText = encodeURIComponent(`مرحباً، لدي تصميم للمنتج رقم ${productId}${cartItemId ? ` - عنصر سلة: ${cartItemId}` : ""}`);
+
+	const whatsappHref = useMemo(() => {
+		if (!whatsappFromSocial) return null;
+
+		if (/^https?:\/\//i.test(whatsappFromSocial)) {
+			if (/wa\.me\//i.test(whatsappFromSocial) && !/text=/i.test(whatsappFromSocial)) {
+				const join = whatsappFromSocial.includes("?") ? "&" : "?";
+				return `${whatsappFromSocial}${join}text=${waText}`;
+			}
+			return whatsappFromSocial;
+		}
+
+		const phone = whatsappFromSocial.replace(/[^\d]/g, "");
+		if (!phone) return null;
+		return `https://wa.me/${phone}?text=${waText}`;
+	}, [whatsappFromSocial, waText]);
+
+	const emailHref = useMemo(() => {
+		if (!emailFromSocial) return null;
+		return `mailto:${emailFromSocial}?subject=${encodeURIComponent("ملف تصميم")}&body=${encodeURIComponent(
+			`لدي تصميم للمنتج رقم ${productId}${cartItemId ? ` - عنصر سلة: ${cartItemId}` : ""}`
+		)}`;
+	}, [emailFromSocial, productId, cartItemId]);
+
+
+	const uploadDesignFileCart = async () => {
+		if (!API_URL) return toast.error("API غير متوفر");
+		if (!token) return toast.error("يجب تسجيل الدخول أولاً");
+		if (!cartItemId) return toast.error("لا يمكن رفع الملف بدون cart_item_id");
+		if (!designFile) return toast.error("اختر ملف التصميم أولاً");
+
+		try {
+			setDesignUploading(true);
+
+			const fd = new FormData();
+			fd.append("img", designFile);
+			fd.append("cart_item_id", String(cartItemId));
+
+			const res = await fetch(`${API_URL}/upload-image`, {
+				method: "POST",
+				headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+				body: fd,
 			});
-		});
+
+			const json = await res.json().catch(() => null);
+			if (!res.ok || (json && json.status === false)) throw new Error(json?.message || "فشل رفع الملف");
+
+			toast.success("تم رفع الملف وربطه بعنصر السلة ✅");
+		} catch (e: any) {
+			toast.error(e?.message || "حدث خطأ أثناء رفع الملف");
+		} finally {
+			setDesignUploading(false);
+		}
+	};
+
+	if (formLoading) return <StickerFormSkeleton />;
+	if (apiError || !apiData) {
+		return (
+			<div className="rounded-2xl border border-slate-200 bg-white p-4 text-center">
+				<p className="text-slate-700 font-extrabold">{apiError || "لا توجد بيانات للمنتج"}</p>
+			</div>
+		);
 	}
 
-	return selected_options;
-}
+	return (
+		<motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="pt-4 mt-4">
+			{/* CART MODE ONLY: Save bar */}
+			{cartItemId && showSaveButton && (
+				<motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-2xl">
+					<div className="flex items-center justify-between gap-2">
+						<div className="flex items-center gap-2">
+							<Warning className="text-yellow-600 text-sm" />
+							<p className="text-sm text-yellow-800 font-bold">لديك تغييرات غير محفوظة</p>
+						</div>
+						<div className="flex gap-2">
+							<Button
+								variant="outlined"
+								size="small"
+								onClick={resetAllOptions}
+								startIcon={<Refresh />}
+								sx={{ borderRadius: "14px", borderColor: "#e2e8f0", color: "#0f172a", fontWeight: 900 }}
+							>
+								إعادة تعيين
+							</Button>
+
+							<Button
+								variant="contained"
+								size="small"
+								onClick={saveAllOptions}
+								disabled={saving}
+								startIcon={saving ? <CircularProgress size={16} /> : <Save />}
+								sx={{ borderRadius: "14px", backgroundColor: "#f59e0b", fontWeight: 900 }}
+							>
+								{saving ? "جاري الحفظ..." : "حفظ"}
+							</Button>
+						</div>
+					</div>
+				</motion.div>
+			)}
+
+			{cartItemId && savedSuccessfully && (
+				<motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="mb-4">
+					<Alert severity="success" className="rounded-2xl" icon={<CheckCircle />}>
+						تم حفظ التغييرات بنجاح
+					</Alert>
+				</motion.div>
+			)}
+
+			<div className="space-y-4">
+				{needSize && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && needSize && size === "اختر"}>
+							<InputLabel>المقاس</InputLabel>
+							<Select value={size} onChange={(e) => handleSizeChange(e.target.value as string)} label="المقاس" className="bg-white">
+								<MenuItem value="اختر" disabled>
+									<em className="text-gray-400">اختر</em>
+								</MenuItem>
+								{apiData.sizes.map((s: any) => (
+									<MenuItem key={s.id} value={s.name}>
+										{s.name}
+									</MenuItem>
+								))}
+							</Select>
+							{showValidation && needSize && size === "اختر" && <FormHelperText className="text-red-500 text-xs">يجب اختيار المقاس</FormHelperText>}
+						</FormControl>
+					</Box>
+				)}
+
+				{needSizeTier && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && needSizeTier && !sizeTierId}>
+							<InputLabel>الكمية</InputLabel>
+							<Select
+								value={sizeTierId ? String(sizeTierId) : "اختر"}
+								onChange={(e) => handleTierChange(e.target.value as string)}
+								label="الكمية"
+								className="bg-white"
+							>
+								<MenuItem value="اختر" disabled>
+									<em className="text-gray-400">اختر</em>
+								</MenuItem>
+
+								{sizeTiers.map((t: any) => {
+									const qty = num(t.quantity);
+									const unit = num(t.price_per_unit);
+									const backendTotal = num(t.total_price);
+									const computed = qty > 0 && unit > 0 ? qty * unit : 0;
+									const showTotal = backendTotal > 0 ? backendTotal : computed;
+
+									return (
+										<MenuItem key={t.id} value={String(t.id)}>
+											<div className="flex items-center justify-between gap-3 w-full">
+												<span>{qty} قطعة</span>
+												<span className="text-xs font-black text-slate-700">{Number(showTotal).toFixed(2)} ر.س</span>
+											</div>
+										</MenuItem>
+									);
+								})}
+							</Select>
+
+							{showValidation && needSizeTier && !sizeTierId && <FormHelperText className="text-red-500 text-xs">يجب اختيار كمية المقاس</FormHelperText>}
+
+							{!!sizeTierId && (
+								<FormHelperText className="text-slate-600 text-xs">
+									سعر الوحدة: {num(sizeTierUnit).toFixed(2)} — الإجمالي: {num(sizeTierTotal).toFixed(2)}
+								</FormHelperText>
+							)}
+						</FormControl>
+					</Box>
+				)}
+
+				{needColor && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && needColor && color === "اختر"}>
+							<InputLabel>اللون</InputLabel>
+							<Select
+								value={color}
+								onChange={(e) => {
+									setColor(e.target.value as string);
+									markDirty();
+								}}
+								label="اللون"
+								className="bg-white"
+							>
+								<MenuItem value="اختر" disabled>
+									<em className="text-gray-400">اختر</em>
+								</MenuItem>
+								{apiData.colors.map((c: any) => (
+									<MenuItem key={c.id} value={c.name}>
+										<div className="flex items-center gap-2">
+											{c.hex_code && <div className="w-4 h-4 rounded-full border border-slate-200" style={{ backgroundColor: c.hex_code }} />}
+											<span>{c.name}</span>
+										</div>
+									</MenuItem>
+								))}
+							</Select>
+							{showValidation && needColor && color === "اختر" && <FormHelperText className="text-red-500 text-xs">يجب اختيار اللون</FormHelperText>}
+						</FormControl>
+					</Box>
+				)}
+
+				{needMaterial && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && needMaterial && material === "اختر"}>
+							<InputLabel>الخامة</InputLabel>
+							<Select
+								value={material}
+								onChange={(e) => {
+									setMaterial(e.target.value as string);
+									markDirty();
+								}}
+								label="الخامة"
+								className="bg-white"
+							>
+								<MenuItem value="اختر" disabled>
+									<em className="text-gray-400">اختر</em>
+								</MenuItem>
+								{apiData.materials.map((m: any) => (
+									<MenuItem key={m.id} value={m.name}>
+										<div className="flex items-center justify-between gap-2 w-full">
+											<span>{m.name}</span>
+											{Number(m.additional_price || 0) > 0 ? (
+												<span className="text-xs font-black text-amber-700">+ {m.additional_price}</span>
+											) : (
+												<span className="text-xs font-black text-slate-500">0</span>
+											)}
+										</div>
+									</MenuItem>
+								))}
+							</Select>
+							{showValidation && needMaterial && material === "اختر" && <FormHelperText className="text-red-500 text-xs">يجب اختيار الخامة</FormHelperText>}
+						</FormControl>
+					</Box>
+				)}
+
+				{/* option groups */}
+				{Object.keys(groupedOptions).map((groupName) => {
+					const items = groupedOptions[groupName] || [];
+					const required = items.some((x: any) => Boolean(x?.is_required));
+					const currentValue = optionGroups?.[groupName] || "اختر";
+					const fieldError = showValidation && required && currentValue === "اختر";
+
+					return (
+						<Box key={groupName}>
+							<FormControl fullWidth size="small" required={required} error={fieldError}>
+								<InputLabel>{groupName}</InputLabel>
+								<Select
+									value={currentValue}
+									onChange={(e) => {
+										const value = e.target.value as string;
+										setOptionGroups((prev) => ({ ...prev, [groupName]: value }));
+										markDirty();
+
+										// if design service changed -> reset method/file
+										if (String(groupName).trim() === "خدمة تصميم" || String(groupName).trim() === "خدمة التصميم") {
+											setDesignSendMethod(null);
+											setDesignFile(null);
+										}
+									}}
+									label={groupName}
+									className="bg-white"
+								>
+									<MenuItem value="اختر" disabled>
+										<em className="text-gray-600">اختر</em>
+									</MenuItem>
+
+									{items.map((o: any) => (
+										<MenuItem key={o.id} value={o.option_value}>
+											<div className="flex items-center justify-between gap-3 w-full">
+												<span>{o.option_value}</span>
+												{Number(o.additional_price || 0) > 0 ? (
+													<span className="text-xs font-black text-amber-700">+ {o.additional_price}</span>
+												) : (
+													<span className="text-xs font-black text-slate-500">0</span>
+												)}
+											</div>
+										</MenuItem>
+									))}
+								</Select>
+
+								{fieldError && <FormHelperText className="text-red-500 text-xs">يجب اختيار {groupName}</FormHelperText>}
+							</FormControl>
+
+							{/* Design boxes: show only when social values exist */}
+							{(String(groupName).trim() === "خدمة تصميم" || String(groupName).trim() === "خدمة التصميم") &&
+								showDesignBoxes &&
+								(whatsappHref || emailHref || cartItemId) && (
+									<div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+										<p className="text-sm font-extrabold text-slate-800">أرسل ملف التصميم عبر:</p>
+
+										<div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+											{whatsappHref && (
+												<a
+													href={whatsappHref}
+													target="_blank"
+													rel="noreferrer"
+													onClick={() => setDesignSendMethod("whatsapp")}
+													className="rounded-2xl border border-slate-200 bg-white p-4 hover:bg-slate-50 transition"
+												>
+													<p className="font-black text-slate-900">WhatsApp</p>
+													<p className="text-xs text-slate-500 font-bold mt-1">فتح واتساب وإرسال الملف</p>
+												</a>
+											)}
+
+											{emailHref && (
+												<a
+													href={emailHref}
+													onClick={() => setDesignSendMethod("email")}
+													className="rounded-2xl border border-slate-200 bg-white p-4 hover:bg-slate-50 transition"
+												>
+													<p className="font-black text-slate-900">Email</p>
+													<p className="text-xs text-slate-500 font-bold mt-1">{emailFromSocial}</p>
+												</a>
+											)}
+
+											<button
+												type="button"
+												onClick={() => setDesignSendMethod("upload")}
+												className={[
+													"rounded-2xl border border-slate-200 bg-white p-4 hover:bg-slate-50 transition text-right",
+													designSendMethod === "upload" ? "ring-2 ring-amber-300" : "",
+												].join(" ")}
+											>
+												<p className="font-black text-slate-900">رفع الملف</p>
+												<p className="text-xs text-slate-500 font-bold mt-1">رفع مباشر عبر الموقع</p>
+											</button>
+										</div>
+
+										{designSendMethod === "upload" && (
+											<div className="mt-4">
+												<Divider className="!my-3" />
+												<div className="flex flex-col gap-3">
+													{/* Upload Card */}
+													<div className="relative">
+														<label
+															className={[
+																"flex flex-col items-center justify-center gap-2",
+																"w-full rounded-2xl border-2 border-dashed",
+																"px-6 py-7 text-center cursor-pointer transition",
+																designFile
+																	? "border-emerald-400 bg-emerald-50"
+																	: "border-slate-300 hover:border-amber-400 hover:bg-amber-50",
+															].join(" ")}
+														>
+															<input
+																type="file"
+																accept="image/*,.pdf,.ai,.psd,.eps,.svg"
+																className="hidden"
+																onChange={(e) => {
+																	const f = e.target.files?.[0] ?? null;
+																	setDesignFile(f);
+																	onDesignFileChange?.(f); // ✅ مهم
+																}}
+
+															/>
+
+															{/* Icon */}
+															<div
+																className={[
+																	"w-12 h-12 rounded-full flex items-center justify-center text-xl",
+																	designFile ? "bg-emerald-200 text-emerald-800" : "bg-amber-200 text-amber-800",
+																].join(" ")}
+															>
+																📎
+															</div>
+
+															{!designFile ? (
+																<>
+																	<p className="text-sm font-black text-slate-800">اسحب الملف هنا أو اضغط للاختيار</p>
+																	<p className="text-xs font-bold text-slate-500">PNG, JPG, PDF, AI, PSD, SVG</p>
+																</>
+															) : (
+																<>
+																	<p className="text-sm font-black text-emerald-800">تم اختيار الملف ✅</p>
+																	<p className="text-xs font-extrabold text-slate-700">
+																		{designFile.name}
+																		<span className="text-slate-500 font-bold">
+																			{" "}
+																			— {(designFile.size / 1024 / 1024).toFixed(2)} MB
+																		</span>
+																	</p>
+																</>
+															)}
+														</label>
+
+														{/* Remove */}
+														{designFile && !designUploading && (
+															<button
+																type="button"
+																onClick={() => {
+																	setDesignFile(null);
+																	onDesignFileChange?.(null); // ✅
+																}}
+
+																className="absolute top-3 right-3 text-xs font-black text-rose-700 hover:underline"
+															>
+																إزالة
+															</button>
+														)}
+													</div>
+												</div>
+
+											</div>
+										)}
+									</div>
+								)}
+						</Box>
+					);
+				})}
+
+				{needPrintingMethod && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && printingMethod === "اختر"}>
+							<InputLabel>طريقة الطباعة</InputLabel>
+							<Select
+								value={printingMethod}
+								onChange={(e) => {
+									setPrintingMethod(e.target.value as string);
+									markDirty();
+								}}
+								label="طريقة الطباعة"
+								className="bg-white"
+							>
+								<MenuItem value="اختر" disabled>
+									<em className="text-gray-400">اختر</em>
+								</MenuItem>
+								{apiData.printing_methods.map((p: any) => (
+									<MenuItem key={p.id} value={p.name}>
+										<div className="flex items-center justify-between gap-3 w-full">
+											<span>{p.name}</span>
+											<span className="text-xs font-black text-amber-700">{p.base_price}</span>
+										</div>
+									</MenuItem>
+								))}
+							</Select>
+
+							{showValidation && printingMethod === "اختر" && <FormHelperText className="text-red-500 text-xs">يجب اختيار طريقة الطباعة</FormHelperText>}
+						</FormControl>
+					</Box>
+				)}
+
+				{needPrintLocation && (
+					<Box>
+						<FormControl fullWidth size="small" required error={showValidation && (!Array.isArray(printLocations) || printLocations.length === 0)}>
+							<InputLabel>مكان الطباعة</InputLabel>
+							<Select
+								multiple
+								value={printLocations}
+								onChange={(e) => {
+									setPrintLocations(e.target.value as string[]);
+									markDirty();
+								}}
+								label="مكان الطباعة"
+								className="bg-white"
+								renderValue={(selected) => (Array.isArray(selected) ? selected.join("، ") : "")}
+							>
+								{apiData.print_locations.map((p: any) => {
+									const checked = printLocations.includes(p.name);
+									return (
+										<MenuItem key={p.id} value={p.name}>
+											<Checkbox checked={checked} />
+											<ListItemText
+												primary={
+													<div className="flex items-center justify-between gap-3 w-full">
+														<span>{p.name}</span>
+														<span className="text-xs font-black text-slate-500">{p.type}</span>
+													</div>
+												}
+											/>
+										</MenuItem>
+									);
+								})}
+							</Select>
+
+							{showValidation && (!Array.isArray(printLocations) || printLocations.length === 0) && (
+								<FormHelperText className="text-red-500 text-xs">يجب اختيار مكان الطباعة</FormHelperText>
+							)}
+						</FormControl>
+					</Box>
+				)}
+			</div>
+
+			{apiData?.options_note && (
+				<div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-2xl">
+					<div className="flex items-start gap-2">
+						<Info className="text-blue-500 text-sm mt-0.5" />
+						<p className="text-sm text-blue-700 font-semibold">{apiData.options_note}</p>
+					</div>
+				</div>
+			)}
+		</motion.div>
+	);
+});
+
+/* ------------------------------------------
+ * ProductPageClient (default export)
+ * ------------------------------------------ */
 
 export default function ProductPageClient() {
 	const { id } = useParams();
@@ -360,7 +1291,7 @@ export default function ProductPageClient() {
 	const { addToCart } = useCart();
 	const { homeData } = useAppContext();
 
-	const stickerFormRef = useRef<any>(null);
+	const stickerFormRef = useRef<StickerFormHandle | null>(null);
 
 	const [product, setProduct] = useState<any>(null);
 	const [apiData, setApiData] = useState<any>(null);
@@ -372,6 +1303,11 @@ export default function ProductPageClient() {
 	const [activeTab, setActiveTab] = useState<TabKey>("options");
 
 	const [showValidation, setShowValidation] = useState(false);
+
+	// ✅ RULE (3): i have design upload AFTER add-to-cart using /upload-image + cart_item_id
+	const [designMode, setDesignMode] = useState<"have_design" | "need_design" | "none">("none");
+	const [designFile, setDesignFile] = useState<File | null>(null);
+	const [uploadingDesign, setUploadingDesign] = useState(false);
 
 	const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>({
 		size: "اختر",
@@ -390,9 +1326,7 @@ export default function ProductPageClient() {
 
 	const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-	// -------------------------
 	// Reviews state
-	// -------------------------
 	const [reviewsLoading, setReviewsLoading] = useState(false);
 	const [reviewsError, setReviewsError] = useState<string | null>(null);
 	const [reviewsData, setReviewsData] = useState<any>(null);
@@ -401,11 +1335,12 @@ export default function ProductPageClient() {
 	const [reviewsRatingFilter, setReviewsRatingFilter] = useState<number | "">("");
 	const [reviewsSortBy, setReviewsSortBy] = useState<"rating" | "created_at">("created_at");
 	const [reviewsSortDir, setReviewsSortDir] = useState<"asc" | "desc">("desc");
+	const [stickerDesignFile, setStickerDesignFile] = useState<File | null>(null);
 
 	const [myRating, setMyRating] = useState<number>(5);
 	const [myComment, setMyComment] = useState<string>("");
 
-	// ✅ fetch product
+	// fetch product
 	useEffect(() => {
 		let mounted = true;
 
@@ -431,7 +1366,7 @@ export default function ProductPageClient() {
 				setProduct(prod);
 				setApiData(json?.data);
 
-				// ✅ seed reviews from product details (NO extra call)
+				// seed reviews from product details
 				if (Array.isArray(prod?.reviews)) {
 					setReviewsData({
 						reviews: prod.reviews,
@@ -476,15 +1411,12 @@ export default function ProductPageClient() {
 		}
 	}, [product?.id]);
 
-	// ✅ fetch reviews ONLY when needed
+	// fetch reviews ONLY when needed
 	const fetchReviews = useCallback(async () => {
 		if (!API_URL || !productId) return;
 
 		const isDefaultQuery =
-			reviewsPage === 1 &&
-			reviewsRatingFilter === "" &&
-			reviewsSortBy === "created_at" &&
-			reviewsSortDir === "desc";
+			reviewsPage === 1 && reviewsRatingFilter === "" && reviewsSortBy === "created_at" && reviewsSortDir === "desc";
 
 		if (isDefaultQuery && hasSeededDefaultRef.current) return;
 
@@ -530,19 +1462,14 @@ export default function ProductPageClient() {
 		const hasExtraOptions = Array.isArray(apiData?.options) && apiData.options.length > 0;
 		const hasPrinting = Array.isArray(apiData?.printing_methods) && apiData.printing_methods.length > 0;
 
-		// NOTE: print_locations tiers etc are handled inside StickerForm
 		return hasSizes || hasColors || hasMaterials || hasExtraOptions || hasPrinting || Array.isArray(apiData?.print_locations);
 	}, [apiData]);
-
-	const hasReviews = useMemo(() => {
-		return (product?.total_reviews ?? reviewsData?.pagination?.total ?? 0) > 0;
-	}, [product?.total_reviews, reviewsData]);
 
 	useEffect(() => {
 		if (!loading) {
 			if (activeTab === "options" && !hasOptions) setActiveTab("reviews");
 		}
-	}, [loading, hasOptions, hasReviews, activeTab]);
+	}, [loading, hasOptions, activeTab]);
 
 	const warrantyText = useMemo(() => {
 		const w = apiData?.warranty;
@@ -558,72 +1485,81 @@ export default function ProductPageClient() {
 		return raw;
 	}, [apiData]);
 
-	const validateOptions = useCallback((options: SelectedOptions, data: any) => {
-		if (!data) return { isValid: false, missingOptions: [] as string[] };
+	const validateOptions = useCallback(
+		(options: SelectedOptions, data: any) => {
+			if (!data) return { isValid: false, missingOptions: [] as string[] };
 
-		let isValid = true;
-		const missingOptions: string[] = [];
+			let isValid = true;
+			const missingOptions: string[] = [];
 
-		if (data.sizes?.length > 0 && (!options.size || options.size === "اختر")) {
-			isValid = false;
-			missingOptions.push("المقاس");
-		}
+			if (data.sizes?.length > 0 && (!options.size || options.size === "اختر")) {
+				isValid = false;
+				missingOptions.push("المقاس");
+			}
 
-		const selectedSizeObj = (data?.sizes || []).find((s: any) => s?.name === options.size);
-		const hasTiers = Array.isArray(selectedSizeObj?.tiers) && selectedSizeObj.tiers.length > 0;
-		if (data.sizes?.length > 0 && hasTiers && !options.size_tier_id) {
-			isValid = false;
-			missingOptions.push("كمية المقاس");
-		}
+			const selectedSizeObj = (data?.sizes || []).find((s: any) => s?.name === options.size);
+			const hasTiers = Array.isArray(selectedSizeObj?.tiers) && selectedSizeObj.tiers.length > 0;
+			if (data.sizes?.length > 0 && hasTiers && !options.size_tier_id) {
+				isValid = false;
+				missingOptions.push("كمية المقاس");
+			}
 
-		if (data.colors?.length > 0 && (!options.color || options.color === "اختر")) {
-			isValid = false;
-			missingOptions.push("اللون");
-		}
+			if (data.colors?.length > 0 && (!options.color || options.color === "اختر")) {
+				isValid = false;
+				missingOptions.push("اللون");
+			}
 
-		if (data.materials?.length > 0 && (!options.material || options.material === "اختر")) {
-			isValid = false;
-			missingOptions.push("الخامة");
-		}
+			if (data.materials?.length > 0 && (!options.material || options.material === "اختر")) {
+				isValid = false;
+				missingOptions.push("الخامة");
+			}
 
-		if (Array.isArray(data?.options) && data.options.length > 0) {
-			const groups: Record<string, any[]> = {};
-			data.options.forEach((o: any) => {
-				const k = String(o.option_name || "").trim();
-				if (!k) return;
-				groups[k] = groups[k] || [];
-				groups[k].push(o);
-			});
+			if (Array.isArray(data?.options) && data.options.length > 0) {
+				const groups: Record<string, any[]> = {};
+				data.options.forEach((o: any) => {
+					const k = String(o.option_name || "").trim();
+					if (!k) return;
+					groups[k] = groups[k] || [];
+					groups[k].push(o);
+				});
 
-			Object.keys(groups).forEach((groupName) => {
-				const items = groups[groupName] || [];
-				const isRequired = items.some((x: any) => Boolean(x?.is_required));
-				if (!isRequired) return;
+				Object.keys(groups).forEach((groupName) => {
+					const items = groups[groupName] || [];
+					const isRequired = items.some((x: any) => Boolean(x?.is_required));
+					if (!isRequired) return;
 
-				const v = options.optionGroups?.[groupName];
-				if (!v || v === "اختر") {
+					const v = options.optionGroups?.[groupName];
+					if (!v || v === "اختر") {
+						isValid = false;
+						missingOptions.push(groupName);
+					}
+				});
+			}
+
+			if (Array.isArray(data?.printing_methods) && data.printing_methods.length > 0) {
+				if (!options.printing_method || options.printing_method === "اختر") {
 					isValid = false;
-					missingOptions.push(groupName);
+					missingOptions.push("طريقة الطباعة");
 				}
-			});
-		}
-
-		if (Array.isArray(data?.printing_methods) && data.printing_methods.length > 0) {
-			if (!options.printing_method || options.printing_method === "اختر") {
-				isValid = false;
-				missingOptions.push("طريقة الطباعة");
 			}
-		}
 
-		if (Array.isArray(data?.print_locations) && data.print_locations.length > 0) {
-			if (!Array.isArray(options.print_locations) || options.print_locations.length === 0) {
-				isValid = false;
-				missingOptions.push("مكان الطباعة");
+			if (Array.isArray(data?.print_locations) && data.print_locations.length > 0) {
+				if (!Array.isArray(options.print_locations) || options.print_locations.length === 0) {
+					isValid = false;
+					missingOptions.push("مكان الطباعة");
+				}
 			}
-		}
 
-		return { isValid, missingOptions };
-	}, []);
+			// design file validation (حسب اختيارك)
+			if (designMode === "have_design" && !designFile) {
+				isValid = false;
+				missingOptions.push("ملف التصميم");
+			}
+
+			return { isValid, missingOptions };
+		},
+		[designMode, designFile]
+	);
 
 	const getSelectedOptions = async () => {
 		if (stickerFormRef.current?.getOptions) {
@@ -634,33 +1570,25 @@ export default function ProductPageClient() {
 		return selectedOptions;
 	};
 
-	// ✅ FIXED BASE price:
-	// - Prefer tier total_price if available
-	// - Else compute qty * unit price
+	// base price from tier total
 	const basePrice = useMemo(() => {
 		const total = computeSizeBaseTotal(selectedOptions);
 		return total > 0 ? total : 0;
 	}, [selectedOptions]);
 
-	// ✅ extras are ALREADY multiplied by qty inside buildSelectedOptionsWithPrice
+	// ✅ extras based on optionGroups only (design one-time is handled)
 	const extrasTotal = useMemo(() => {
 		if (!apiData) return 0;
 		const selected = buildSelectedOptionsWithPrice(apiData, selectedOptions);
-
-		// remove helper options from extras
-		const filtered = selected.filter((o) => !["كمية المقاس", "سعر المقاس الإجمالي", "سعر الوحدة"].includes(o.option_name));
-
-		return filtered.reduce((sum, o) => sum + num(o.additional_price), 0);
+		return selected.reduce((sum, o) => sum + num(o.additional_price), 0);
 	}, [apiData, selectedOptions]);
 
 	const displayTotal = useMemo(() => {
 		const total = basePrice + extrasTotal;
 		return total > 0 ? total : 0;
 	}, [basePrice, extrasTotal]);
-
+ 
 	const handleAddToCart = async () => {
-		if (!product || !apiData) return;
-
 		setShowValidation(true);
 
 		const opts = await getSelectedOptions();
@@ -672,20 +1600,18 @@ export default function ProductPageClient() {
 		}
 
 		if (!token) return toast.error("يجب تسجيل الدخول أولاً");
+		if (!API_URL) return toast.error("API غير متوفر");
 
 		const selected_options = buildSelectedOptionsWithPrice(apiData, opts);
 		const idsPayload = buildIdsPayload(apiData, opts);
 
-		// ✅ IMPORTANT: set cart quantity to tier quantity (if exists)
 		const qty = Math.max(1, Number(opts?.size_quantity || 1));
 
 		const cartData = {
 			product_id: product.id,
 			quantity: qty,
-
 			...idsPayload,
 			selected_options,
-
 			design_service_id: null,
 			is_sample: false,
 			note: "",
@@ -693,11 +1619,55 @@ export default function ProductPageClient() {
 		};
 
 		try {
-			await addToCart(product.id, cartData);
+			const res: any = await addToCart(product.id, cartData);
+ 
+			const cartItemId =
+				Number(res?.data?.cart_item_id) ||
+				Number(res?.data?.id) ||
+				Number(res?.cart_item_id) ||
+				Number(res?.id) ||
+				null;
+
+			const fileToUpload = designFile || stickerDesignFile;
+
+			if (fileToUpload) {
+				if (!cartItemId) {
+					toast.error("تمت الإضافة للسلة لكن لم يتم العثور على cart_item_id لربط ملف التصميم. يمكنك رفعه من السلة.");
+					return;
+				}
+
+				setUploadingDesign(true);
+				try {
+					const fd = new FormData();
+					fd.append("image", fileToUpload);
+					fd.append("cart_item_id", String(cartItemId));
+
+					const res2 = await fetch(`${API_URL}/cart/upload-image`, {
+						method: "POST",
+						headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+						body: fd,
+					});
+
+					const json2 = await res2.json().catch(() => null);
+					if (!res2.ok || (json2 && json2.status === false)) {
+						throw new Error(json2?.message || "فشل رفع ملف التصميم");
+					}
+
+					toast.success("تم رفع ملف التصميم وربطه بالمنتج ✅");
+				} catch (e: any) {
+					console.log(e);
+					toast.error(e?.message || "حدث خطأ أثناء رفع ملف التصميم");
+				} finally {
+					setUploadingDesign(false);
+				}
+			}
+
 		} catch {
 			toast.error("حدث خطأ أثناء إضافة المنتج للسلة");
 		}
 	};
+
+
 
 	const toggleFavorite = async () => {
 		if (!token) return toast.error("يجب تسجيل الدخول أولاً");
@@ -923,6 +1893,79 @@ export default function ProductPageClient() {
 							</SectionCard>
 						)}
 
+						{/* Design Choice (RULE 3) */}
+						<div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden p-4">
+							<p className="font-extrabold text-slate-900 mb-3">ملف التصميم</p>
+
+							<div className="flex flex-wrap gap-2">
+								<button
+									type="button"
+									onClick={() => {
+										setDesignMode("none");
+										setDesignFile(null);
+									}}
+									className={`px-4 py-2 rounded-2xl border font-extrabold text-sm transition ${designMode === "none"
+										? "bg-[#14213d] text-white border-[#14213d]"
+										: "bg-white text-slate-800 border-slate-200 hover:bg-slate-50"
+										}`}
+								>
+									لا يوجد
+								</button>
+
+								<button
+									type="button"
+									onClick={() => {
+										setDesignMode("have_design");
+									}}
+									className={`px-4 py-2 rounded-2xl border font-extrabold text-sm transition ${designMode === "have_design"
+										? "bg-[#14213d] text-white border-[#14213d]"
+										: "bg-white text-slate-800 border-slate-200 hover:bg-slate-50"
+										}`}
+								>
+									لدي تصميم (I have design)
+								</button>
+
+								<button
+									type="button"
+									onClick={() => {
+										setDesignMode("need_design");
+										setDesignFile(null);
+									}}
+									className={`px-4 py-2 rounded-2xl border font-extrabold text-sm transition ${designMode === "need_design"
+										? "bg-[#14213d] text-white border-[#14213d]"
+										: "bg-white text-slate-800 border-slate-200 hover:bg-slate-50"
+										}`}
+								>
+									أحتاج تصميم
+								</button>
+							</div>
+
+							{designMode === "have_design" && (
+								<div className="mt-4">
+									<label className="block text-sm font-extrabold text-slate-700 mb-2">
+										ارفع ملف التصميم (سيتم رفعه بعد إضافة المنتج للسلة)
+									</label>
+									<input
+										type="file"
+										accept="image/*,.pdf,.ai,.psd,.eps,.svg"
+										onChange={(e) => {
+											const f = e.target.files?.[0] || null;
+											setDesignFile(f);
+											setStickerDesignFile(f);
+
+										}}
+										className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-extrabold file:bg-amber-50 file:text-amber-800 hover:file:bg-amber-100"
+									/>
+									{designFile && (
+										<p className="mt-2 text-xs font-bold text-slate-600">
+											الملف المختار: <span className="font-black">{designFile.name}</span>
+										</p>
+									)}
+									{uploadingDesign && <p className="mt-2 text-xs font-black text-amber-700">جاري رفع ملف التصميم...</p>}
+								</div>
+							)}
+						</div>
+
 						{/* Tabs */}
 						<div className="mt-6 rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
 							<div className="grid grid-cols-2 border-b border-slate-200">
@@ -959,6 +2002,7 @@ export default function ProductPageClient() {
 											ref={stickerFormRef}
 											onOptionsChange={setSelectedOptions}
 											showValidation={showValidation}
+											onDesignFileChange={setStickerDesignFile} // ✅
 										/>
 									) : (
 										<div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-600 font-bold">لا توجد خيارات لهذا المنتج.</div>
@@ -986,7 +2030,9 @@ export default function ProductPageClient() {
 														<div>
 															<p className="text-sm font-bold text-slate-500">متوسط التقييم</p>
 															<div className="flex items-center gap-3 mt-1">
-																<p className="text-3xl font-black text-slate-900">{reviewsData?.stats?.average_rating ?? product?.average_rating ?? 0}</p>
+																<p className="text-3xl font-black text-slate-900">
+																	{reviewsData?.stats?.average_rating ?? product?.average_rating ?? 0}
+																</p>
 																<StarsRow value={Math.round(reviewsData?.stats?.average_rating ?? product?.average_rating ?? 0)} />
 															</div>
 															<p className="text-sm text-slate-500 mt-1">{reviewsData?.stats?.total_reviews ?? product?.total_reviews ?? 0} تقييم</p>
@@ -1043,7 +2089,9 @@ export default function ProductPageClient() {
 																				{r.user?.avatar ? (
 																					<Image src={r.user.avatar} alt={r.user.name} fill className="object-cover" />
 																				) : (
-																					<div className="w-full h-full flex items-center justify-center text-slate-400 font-black">{r.user?.name?.[0] ?? "U"}</div>
+																					<div className="w-full h-full flex items-center justify-center text-slate-400 font-black">
+																						{r.user?.name?.[0] ?? "U"}
+																					</div>
 																				)}
 																			</div>
 																			<div>
@@ -1072,7 +2120,9 @@ export default function ProductPageClient() {
 															))}
 														</div>
 													) : (
-														<div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-center text-slate-600 font-bold">لا توجد تقييمات حتى الآن.</div>
+														<div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-center text-slate-600 font-bold">
+															لا توجد تقييمات حتى الآن.
+														</div>
 													)}
 
 													{reviewsData?.pagination?.last_page > 1 && (
@@ -1156,29 +2206,24 @@ export default function ProductPageClient() {
 
 									<div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
 										{selectedOptions.size !== "اختر" && <OptChip label="المقاس" value={selectedOptions.size} />}
-
 										{!!selectedOptions.size_quantity && <OptChip label="كمية المقاس" value={`${selectedOptions.size_quantity}`} />}
-
 										{selectedOptions.color !== "اختر" && <OptChip label="اللون" value={selectedOptions.color} />}
 										{selectedOptions.material !== "اختر" && <OptChip label="الخامة" value={selectedOptions.material} />}
-
 										{selectedOptions.printing_method !== "اختر" && <OptChip label="طريقة الطباعة" value={selectedOptions.printing_method} />}
-
 										{(selectedOptions.print_locations?.length ?? 0) > 0 && (
 											<OptChip label="مكان الطباعة" value={selectedOptions.print_locations.join("، ")} />
 										)}
-
 										{Object.entries(selectedOptions.optionGroups || {}).map(([k, v]) => (v !== "اختر" ? <OptChip key={k} label={k} value={v} /> : null))}
 									</div>
 
-									{/* ✅ price breakdown */}
+									{/* price breakdown */}
 									<div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
 										<div className="flex items-center justify-between text-sm font-extrabold text-slate-700">
 											<span>السعر الأساسي (المقاس × الكمية)</span>
 											<span>{basePrice.toFixed(2)} ر.س</span>
 										</div>
 										<div className="flex items-center justify-between text-sm font-extrabold text-slate-700 mt-2">
-											<span>إضافات الخيارات (× الكمية)</span>
+											<span>إضافات الخيارات</span>
 											<span>+ {extrasTotal.toFixed(2)} ر.س</span>
 										</div>
 										<div className="h-px bg-slate-200 my-3" />
@@ -1291,7 +2336,11 @@ export default function ProductPageClient() {
 									</div>
 
 									<div className="min-w-[170px]">
-										<ButtonComponent className="scale-[.8]" title={showMissingBadge ? "اختر الخيارات أولاً" : "اضافة للسلة"} onClick={handleAddToCart} />
+										<ButtonComponent
+											className="scale-[.8]"
+											title={showMissingBadge ? "اختر الخيارات أولاً" : uploadingDesign ? "جاري الرفع..." : "اضافة للسلة"}
+											onClick={handleAddToCart}
+										/>
 									</div>
 								</div>
 							</div>
@@ -1302,63 +2351,5 @@ export default function ProductPageClient() {
 
 			<div className="h-16" />
 		</>
-	);
-}
-
-function OptChip({ label, value }: { label: string; value: string }) {
-	return (
-		<div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-			<p className="text-xs text-slate-500 font-bold">{label}</p>
-			<p className="text-sm font-extrabold text-slate-900 mt-1">{value}</p>
-		</div>
-	);
-}
-
-const ratingLabels: Record<number, string> = {
-	1: "سيئ جدًا",
-	2: "سيئ",
-	3: "متوسط",
-	4: "جيد جدًا",
-	5: "ممتاز",
-};
-
-interface StarRatingInputProps {
-	value: number;
-	onChange: (v: number) => void;
-	disabled?: boolean;
-}
-
-export function StarRatingInput({ value, onChange, disabled = false }: StarRatingInputProps) {
-	const [hovered, setHovered] = useState<number | null>(null);
-	const activeValue = hovered ?? value;
-
-	return (
-		<div className="flex  items-center gap-2">
-			<div className={`flex items-center  gap-1 ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}>
-				{[1, 2, 3, 4, 5].map((star) => {
-					const filled = star <= activeValue;
-
-					return (
-						<motion.button
-							key={star}
-							type="button"
-							whileHover={!disabled ? { scale: 1.15 } : undefined}
-							whileTap={!disabled ? { scale: 0.95 } : undefined}
-							onMouseEnter={() => !disabled && setHovered(star)}
-							onMouseLeave={() => !disabled && setHovered(null)}
-							onClick={() => !disabled && onChange(star)}
-							className="focus:outline-none"
-							aria-label={`تقييم ${star} نجوم`}
-						>
-							<Star className={`w-10 h-10 transition-colors ${filled ? "text-amber-400" : "text-slate-300"}`} fill={filled ? "currentColor" : "none"} />
-						</motion.button>
-					);
-				})}
-			</div>
-
-			<motion.div key={activeValue} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="text-sm font-extrabold text-slate-700">
-				{ratingLabels[activeValue] ?? ""}
-			</motion.div>
-		</div>
 	);
 }

@@ -1,81 +1,122 @@
 "use client";
 import { useState } from "react";
-import toast from "react-hot-toast";
 
-export default function CoBon() {
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false); 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+type MsgType = "success" | "error" | "";
 
-  const handleApply = async () => {
-    if (!code.trim()) {
-      toast.error("من فضلك أدخل كود الكوبون", { position: "top-center" });
-      return;
-    }
+type CouponResponse = {
+	status?: boolean;
+	message?: string;
+	data?: {
+		coupon_id?: number;
+		discount_amount?: number;
+		new_total?: number;
+	};
+};
 
-    setLoading(true); 
+type CoBonProps = {
+	onApplied?: (payload: CouponResponse) => void;
+	onError?: (payload: CouponResponse) => void;
+	onCleared?: () => void;
+};
 
-    try {
-      const token = localStorage.getItem("auth_token");
-      const res = await fetch(`${baseUrl}/coupon/apply`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          coupon_code: code,
-        }),
-      });
+export default function CoBon({ onApplied, onError, onCleared , code, setCode }: any) {
 
-      const data = await res.json();
+	const [loading, setLoading] = useState(false);
+	const [message, setMessage] = useState("");
+	const [msgType, setMsgType] = useState<MsgType>("");
 
-      if (res.ok) {
-        toast.success(data.message || "تم تطبيق الكود بنجاح", {
-          position: "top-center",
-        });
-      } else {
-        toast.error(data.message || "الكود غير صحيح", {
-          position: "top-center",
-        });
-      }
+	const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
-      setCode("");
-    } catch (error) {
-      toast.error("حدث خطأ أثناء الاتصال بالسيرفر", {
-        position: "top-center",
-      });
-      console.error(error);
-    }
+	const handleApply = async () => {
+		setMessage("");
+		setMsgType("");
 
-    setLoading(false); 
-  };
+		if (!code.trim()) {
+			setMessage("من فضلك أدخل كود الكوبون");
+			setMsgType("error");
+			return;
+		}
 
-  return (
-    <div>
-      <p className="text-md p-2 text-pro">كوبون كود</p>
+		if (!baseUrl) {
+			setMessage("إعدادات السيرفر غير مكتملة");
+			setMsgType("error");
+			return;
+		}
 
-      <div className="flex text-sm items-center border border-gray-300 rounded overflow-hidden w-full max-w-sm">
+		setLoading(true);
 
-        <input
-          type="text"
-          value={code}
-          placeholder="ادخل الكود"
-          onChange={(e) => setCode(e.target.value)}
-          disabled={loading}
-          className="flex-1 px-4 py-2 text-gray-800 focus:outline-none disabled:bg-gray-100"
-        />
+		try {
+			const token = localStorage.getItem("auth_token");
 
-        <button 
-          onClick={handleApply}
-          disabled={loading} 
-          aria-label="copon"
-          className="bg-gray-200 cursor-pointer text-md text-gray-800 px-5 py-2 hover:bg-gray-300 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? "جاري..." : "تطبيق"} 
-        </button>
+			const res = await fetch(`${baseUrl}/coupon/apply`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({ coupon_code: code }),
+			});
 
-      </div>
-    </div>
-  );
+			const data: CouponResponse = await res.json();
+
+			if (res.ok) {
+				setMessage(data.message || "تم تطبيق الكود بنجاح");
+				setMsgType("success");
+
+				onApplied?.(data);
+			} else {
+				setMessage(data.message || "الكود غير صحيح");
+				setMsgType("error");
+
+				onError?.(data);
+			}
+		} catch (error) {
+			const payload: CouponResponse = { status: false, message: "حدث خطأ أثناء الاتصال بالسيرفر" };
+			setMessage(payload.message || "حدث خطأ أثناء الاتصال بالسيرفر");
+			setMsgType("error");
+
+			onError?.(payload);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const handleClear = () => {
+		setCode("");
+		setMessage("");
+		setMsgType("");
+		onCleared?.();
+	};
+
+	return (
+		<div className="w-full max-w-sm">
+			<p className="text-md p-2 text-pro">كوبون كود</p>
+
+			<div className="flex text-sm items-center border border-gray-300 rounded overflow-hidden">
+				<input
+					type="text"
+					value={code}
+					placeholder="ادخل الكود"
+					onChange={(e) => setCode(e.target.value)}
+					disabled={loading}
+					className="flex-1 px-4 py-2 text-gray-800 focus:outline-none disabled:bg-gray-100"
+				/>
+
+				<button
+					onClick={handleApply}
+					disabled={loading}
+					aria-label="coupon"
+					className="bg-gray-200 text-md text-gray-800 px-5 py-2 hover:bg-gray-300 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					{loading ? "جاري..." : "تطبيق"}
+				</button> 
+			</div>
+
+			{message && (
+				<p className={`mt-2 text-sm font-semibold ${msgType === "success" ? "text-green-600" : "text-red-600"}`}>
+					{message}
+				</p>
+			)}
+		</div>
+	);
 }

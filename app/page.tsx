@@ -7,7 +7,7 @@ import SliderComponent from "@/components/SliderComponent";
 import { fetchApi, fetchApi2 } from "@/lib/api";
 import { useAppContext } from "@/src/context/AppContext";
 import { BannerI } from "@/Types/BannerI";
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -17,6 +17,7 @@ import {
 	HeroSliderSkeleton,
 	CategorySectionSkeleton,
 } from "@/components/skeletons/HomeSkeletons";
+import WhyAndFaqs from "../components/WhyAndFaqs";
 
 export default function Home() {
 	const { homeData, loadingCategories, parentCategories, loadingHome } =
@@ -32,9 +33,6 @@ export default function Home() {
 
 	// ✅ load-more UI state
 	const [loadingMore, setLoadingMore] = useState(false);
-
-	// ✅ sentinel ref for infinite scroll
-	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
 	// ✅ keep local state synced when context homeData updates (first load / refresh)
 	useEffect(() => {
@@ -73,31 +71,7 @@ export default function Home() {
 		}
 	}, [paginationState?.next_page, loadingMore]);
 
-	// ✅ infinite scroll observer
 	const hasNext = Boolean(paginationState?.next_page);
-
-	useEffect(() => {
-		if (!hasNext) return;
-
-		const el = loadMoreRef.current;
-		if (!el) return;
-
-		const observer = new IntersectionObserver(
-			(entries) => {
-				const first = entries[0];
-				if (!first?.isIntersecting) return;
-				loadMore();
-			},
-			{
-				root: null,
-				rootMargin: "600px", // ✅ preload before bottom
-				threshold: 0,
-			}
-		);
-
-		observer.observe(el);
-		return () => observer.disconnect();
-	}, [hasNext, loadMore]);
 
 	// ------------------ slider (your existing code) ------------------
 	const [mainSlider, setMainSlider] = useState<BannerI[]>([]);
@@ -232,41 +206,22 @@ export default function Home() {
 					)}
 				</div>
 
-				{/* ✅ Infinite scroll sentinel */}
-				{hasNext && (
-					<div className="mt-8 flex items-center justify-center">
-						<div ref={loadMoreRef} className="h-1 w-full" />
+				{/* ✅ Load More Button (manual) */}
+				{hasNext && !loadingHome && (
+					<div className="mt-2 flex items-center justify-center">
+						<button
+							type="button"
+							onClick={loadMore}
+							disabled={loadingMore}
+							className="rounded-2xl px-6 py-3 font-extrabold shadow-sm border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+						>
+							{loadingMore ? "جاري تحميل المزيد..." : "تحميل المزيد"}
+						</button>
 					</div>
 				)}
+ 
 
-				{/* ✅ Pretty loader when fetching more */}
-				{loadingMore && (
-					<div className="mt-10 flex items-center justify-center">
-						<div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white/80 backdrop-blur px-6 py-4 shadow-lg">
-							{/* animated dots */}
-							<div className="flex gap-1">
-								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce [animation-delay:-0.3s]" />
-								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce [animation-delay:-0.15s]" />
-								<span className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-bounce" />
-							</div>
-
-							<p className="text-sm font-extrabold text-slate-700 tracking-wide">
-								جاري تحميل المزيد
-							</p>
-						</div>
-					</div>
-				)}
-
-
-
-				{/* ✅ end message */}
-				{!hasNext && categories2.length > 0 && !loadingHome && (
-					<div className="mt-10 flex items-center justify-center">
-						<p className="text-sm font-bold text-slate-500">
-							وصلت لنهاية الأقسام ✅
-						</p>
-					</div>
-				)}
+				<WhyAndFaqs />
 			</div>
 		</div>
 	);

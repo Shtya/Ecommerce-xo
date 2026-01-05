@@ -11,7 +11,7 @@ export default function LoadingOverlay({ show, message }: { show: boolean; messa
 					animate={{ opacity: 1 }}
 					exit={{ opacity: 0 }}
 					transition={{ duration: 0.4 }}
-					className="fixed inset-0 z-[9999] flex items-center justify-center bg-gradient-to-br from-black/50 to-black/30 backdrop-blur-md"
+					className="fixed inset-0 z-[999900000] flex items-center justify-center bg-gradient-to-br from-black/50 to-black/30 backdrop-blur-md"
 				>
 					<motion.div
 						initial={{ scale: 0.7, opacity: 0, rotate: -10 }}
